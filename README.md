@@ -26,8 +26,10 @@ flowchart LR
   opens a viewer pane beside the agent's pane; later ones appear in it.
 - `show` renders before it returns. A broken diagram comes back to the agent as an error
   with a line number, so the agent fixes it instead of telling you it worked.
-- For Claude Code, an optional **Stop hook** also picks up ` ```mermaid ` (and other
-  diagram) blocks from its answers, without the agent doing anything.
+- For Claude Code, an optional **Stop hook** also picks up diagram blocks from its answers,
+  without the agent doing anything: ` ```mermaid `, ` ```plantuml ` / `puml` / `c4plantuml`
+  (`@startuml` is added when missing), ` ```structurizr `, ` ```d2 `, ` ```dot ` / `graphviz`,
+  also inside list items.
 - **The viewer follows the chat.** Scroll the agent's conversation back and the viewer
   switches to the diagram on screen; scroll down and it follows the newest again.
 - Every agent pane gets its own viewer, in every space, tab and herdr session.
