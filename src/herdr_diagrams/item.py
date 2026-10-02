@@ -41,6 +41,29 @@ def home() -> Path:
     return Path(state) / "herdr-diagrams"
 
 
+def prepare_home() -> Path:
+    """Create the state directory, private to the user (0700): diagrams describe projects."""
+    path = home()
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.stat().st_mode & 0o077:
+        path.chmod(0o700)
+    return path
+
+
+class SandboxError(OSError):
+    """The state directory is not writable, typically because the agent runs sandboxed."""
+
+
+def check_writable() -> None:
+    """Raise SandboxError when this process cannot write to the state directory."""
+    try:
+        probe = prepare_home() / f".probe-{os.getpid()}"
+        probe.write_text("")
+        probe.unlink()
+    except OSError as exc:
+        raise SandboxError(exc.errno, f"cannot write to {home()}: {exc.strerror}") from exc
+
+
 def spool_root() -> Path:
     return home() / "spool"
 
@@ -218,6 +241,7 @@ def new(
 def write(item: Item, pane: str | None = None) -> Path:
     """Atomically write `item` into the spool of `pane` (default: origin.pane)."""
     validate(item.to_json())
+    prepare_home()
     target_dir = spool_dir(pane if pane is not None else item.origin.get("pane"))
     target_dir.mkdir(parents=True, exist_ok=True)
     final = target_dir / f"{item.id}.json"

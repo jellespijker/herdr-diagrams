@@ -22,6 +22,7 @@ PENDING_SECONDS = 20
 
 
 def _write(path: Path, data: dict) -> None:
+    item.prepare_home()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data))

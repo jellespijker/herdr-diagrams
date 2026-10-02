@@ -86,13 +86,16 @@ Defined in [ADR-0002](adr/0002-item-contract-v1.md). Validated against `schema/i
 ${HERDR_DIAGRAMS_HOME:-${XDG_STATE_HOME:-~/.local/state}/herdr-diagrams}/
   spool/<herdr-session>/<pane-key>/<created_ns>-<rand>.json
   viewers/<herdr-session>/<pane-key>.json
-  cache/<sha256>.png
+  archive/<herdr-session>/<pane-key>/<time>-<reason>/*.json
+  cache/<sha256>.png | .svg
+  daemon-<herdr-session>.lock
 ```
+
+The folder is private (`0700`).
 
 - `<herdr-session>` is `HERDR_SESSION`, or the name in `HERDR_SOCKET_PATH`
   (`.../sessions/<name>/herdr.sock`), or `default`. Pane IDs are only unique within one
   herdr session, so every per-pane path is scoped by it.
-
 - `<pane-key>` is `HERDR_PANE_ID` with `:` replaced by `_` (`w1:p3` → `w1_p3`). Items written
   outside herdr go to `spool/_nopane/`.
 - Writers create the file as `<name>.json.tmp` and `rename(2)` it into place, so the viewer
@@ -252,6 +255,8 @@ herdr-diagram view [--bind P]
 herdr-diagram doctor
 herdr-diagram install-skill [--harness H ...] [--uninstall] [--status]
 herdr-diagram install-hook claude [--settings FILE] [--uninstall]
+herdr-diagram allow claude [--settings FILE] [--uninstall]
+herdr-diagram daemon
 herdr-diagram hook claude-stop
 herdr-diagram event
 herdr-diagram export [--pane P] [--all | -n N] [--archived] [-d DIR] [--theme T] [--png] [--svg] [--src]
@@ -268,12 +273,15 @@ herdr-diagram gc [--older-than 7d]
 | `doctor` | Report: herdr binary and version, `HERDR_PANE_ID`, `kitty_graphics` setting, paths, each renderer available or missing, image conversion tool, skill link status. |
 | `install-skill` | §10. |
 | `install-hook` | Add or remove the Claude Code `Stop` hook in `~/.claude/settings.json` (§9.2). Idempotent; keeps other hooks; writes a `.bak-herdr-diagrams` backup. |
+| `allow` | Add or remove `Bash(herdr-diagram:*)` and `Edit(<state folder>/**)` in Claude Code's `permissions.allow` ([ADR-0011](adr/0011-sandboxes-and-the-viewer-daemon.md)). |
+| `daemon` | Background watcher, one per herdr session: opens viewers for new Items, fills in agent sessions ([ADR-0011](adr/0011-sandboxes-and-the-viewer-daemon.md)). Started by the plugin, not by hand. |
 | `hook` | Harness hook entry point. Always exits 0 and prints nothing; errors go to `hook-errors.log` in the home. |
 | `export` | Write the newest Item (or `-n`, or `--all`) as PNG, SVG and source into `export_dir` (default `{cwd}/diagrams`, light theme). Uses `svg_argv` from the registry for SVG. Same-content files are kept; different files get `-2`. |
 | `event` | Plugin event and startup handler; see [ADR-0009](adr/0009-archive-on-lifecycle-events.md). |
 | `gc` | Delete spool, archive and cache files older than the cutoff, then empty directories. Also run at plugin startup with 7 days. |
 
-Exit codes: 0 ok, 1 runtime error (including render errors), 2 usage error, 3 format not detected.
+Exit codes: 0 ok, 1 runtime error (including render errors), 2 usage error, 3 format not
+detected, 4 state folder not writable (sandbox).
 
 ## 8. Viewer
 

@@ -20,7 +20,7 @@ import time
 import tty
 from pathlib import Path
 
-from . import display, herdr, item, render, sync, viewers
+from . import daemon, display, herdr, item, render, sync, viewers
 
 POLL_SPOOL = 0.4
 POLL_PANE = 5.0
@@ -515,6 +515,10 @@ class Viewer:
 
     def run(self) -> int:
         viewers.register(self.bind, os.environ.get("HERDR_PANE_ID"))
+        try:
+            daemon.ensure()  # the viewer pane runs outside agent sandboxes
+        except OSError:
+            pass
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.watcher, daemon=True).start()
         old = termios.tcgetattr(self.in_fd) if os.isatty(self.in_fd) else None

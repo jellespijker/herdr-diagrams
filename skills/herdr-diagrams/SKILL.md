@@ -10,8 +10,11 @@ answer stay text. To show a real image, pass the diagram to `herdr-diagram show`
 renders the diagram and displays it in a viewer pane next to yours. The viewer opens by
 itself the first time.
 
-Check that you are inside herdr first: `test "$HERDR_ENV" = 1`. If you are not, skip this
-skill. Use `herdr-diagram render FILE -o out.png` only if the user asks for an image file.
+Run `herdr-diagram` as a single plain command: no `&&` or `;` chains, no `$VARIABLES`, no
+`cd` in front. Permission rules allow exactly `herdr-diagram ...`, and anything around it
+makes the agent ask the user for approval. Outside herdr the command says so; then put the
+diagram in your answer as text instead. Use `herdr-diagram render FILE -o out.png` only if
+the user asks for an image file.
 
 ## Show a diagram
 
@@ -81,6 +84,14 @@ source into your answer as well, unless the user asked for the source. Do not pr
 paths.
 
 ## Troubleshooting
+
+- Exit status 4, "cannot write to ...": you run in a sandbox or with restricted file access.
+  Do not retry. Put the diagram in your answer as a fenced code block (```` ```mermaid ````
+  and so on); with Claude Code's Stop hook it still appears in the viewer. Tell the user
+  once that `herdr-diagram allow claude` (or the README section "Approval modes and
+  sandboxes") lets `show` work directly.
+- "queued; the viewer ... shows it in a moment": normal in a sandbox. The plugin opens the
+  viewer for you.
 
 - `command not found: herdr-diagram`: the plugin is not linked yet. Tell the user to run
   the herdr action "Diagrams: install skill and CLI for all agents".

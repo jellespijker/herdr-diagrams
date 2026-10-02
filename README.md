@@ -37,6 +37,42 @@ flowchart LR
 
 ![Scroll sync: the chat scrolled back to the checkout answer shows the sequence diagram (top); back at the bottom it shows the newest, the ER diagram (bottom)](docs/screenshots/scroll-sync.png)
 
+## Approval modes and sandboxes
+
+Diagrams and images live outside the project, in `~/.local/state/herdr-diagrams` (private,
+`0700`). How that interacts with an agent's approval mode and sandbox:
+
+| Route | Approval prompt? | Sandbox? |
+|---|---|---|
+| Claude Code **Stop hook** (`install-hook claude`) | Never: hooks run outside the agent's tool calls | Not affected |
+| Agent runs **`herdr-diagram show`** (the skill) | Yes, unless the command is allow-listed or the mode auto-approves | Needs write access to the state folder; the viewer is opened by the plugin's daemon, so no socket access is needed |
+| **Viewer, daemon, events** | Never: herdr runs them as the plugin | Not affected |
+
+Per agent, to run `show` without prompts and inside a sandbox (✓ tested here, · from the docs):
+
+| Agent | Allow the command | If its sandbox is on |
+|---|---|---|
+| Claude Code ✓ | `herdr-diagram allow claude` adds `Bash(herdr-diagram:*)` and `Edit(~/.local/state/herdr-diagrams/**)` to `permissions.allow` | The `Edit` rule also makes the folder writable in the sandbox (tested with the bubblewrap sandbox on Linux) |
+| Codex · | `prefix_rule(pattern=["herdr-diagram"], decision="allow")` in `~/.codex/rules/default.rules` | An allow rule runs the command outside the sandbox. Or add the folder to `[sandbox_workspace_write] writable_roots` |
+| opencode · | `"permission": {"bash": {"herdr-diagram *": "allow"}}` in `opencode.json` | No sandbox |
+| Copilot CLI · | `--allow-tool 'shell(herdr-diagram:*)'` | Off by default; else add the folder to `sandbox.userPolicy.filesystem.readwritePaths` |
+| agy · | `"permissions": {"allow": ["command(herdr-diagram)"]}` in `~/.gemini/antigravity-cli/settings.json` | `"allow": ["write_file(~/.local/state/herdr-diagrams)"]`, or `unsandboxed(herdr-diagram)` |
+| Gemini CLI · | `"tools": {"allowed": ["run_shell_command(herdr-diagram)"]}` | Container sandbox: mount the folder with `SANDBOX_MOUNTS` |
+
+Modes:
+
+- **Ask / default**: one prompt per `show` until the command is allow-listed.
+- **Auto** (Claude's classifier, Codex `on-request`): usually runs; the allow rule removes the guesswork.
+- **Yolo / bypass / full access**: runs without prompts. No sandbox, so nothing else is needed.
+- **Sandboxed** (Claude `sandbox.enabled`, Codex `workspace-write`): `show` fails with exit
+  status 4 and a message that names the fix, until the folder is writable. The skill then
+  tells the agent to put the diagram in its answer instead, where the Stop hook (Claude)
+  still picks it up.
+
+Why the folder is outside the project: diagrams are per pane and per session, must not end
+up in commits, and the viewer and daemon (outside any sandbox) must find them for every
+project. `export` writes into the project only when you ask for it.
+
 ## Platforms
 
 | Platform | Status |
@@ -78,11 +114,15 @@ herdr plugin action invoke herdr-diagrams.doctor
 | `~/.gemini/config/skills/herdr-diagrams` | Antigravity CLI (agy), if installed |
 | `~/.local/bin/herdr-diagram` | the command line |
 
-Optional, for Claude Code: show diagrams from its answers automatically.
+Optional, for Claude Code:
 
 ```sh
-herdr-diagram install-hook claude      # edits ~/.claude/settings.json, keeps a backup
+herdr-diagram install-hook claude      # show diagrams from its answers automatically
+herdr-diagram allow claude             # let it run `show` without prompts, also sandboxed
 ```
+
+Both edit `~/.claude/settings.json` (or the file it links to), keep its file mode and write a
+backup. `--uninstall` reverts each.
 
 Optional key binding in `~/.config/herdr/config.toml`:
 
@@ -183,7 +223,8 @@ herdr-diagram export             write PNG, SVG and source files (see Export)
 herdr-diagram open               open the viewer beside this pane
 herdr-diagram doctor             check herdr, graphics, renderers and links
 herdr-diagram install-skill      link skill and CLI (--status, --uninstall)
-herdr-diagram install-hook claude
+herdr-diagram install-hook claude  automatic Stop hook for Claude Code
+herdr-diagram allow claude         permission rules for Claude Code (no prompts, sandbox)
 herdr-diagram gc                 delete diagrams, archives and images older than 7 days
 ```
 

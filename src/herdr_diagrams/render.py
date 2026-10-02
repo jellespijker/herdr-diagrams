@@ -269,6 +269,7 @@ def _png_from(file: Path, dest: Path) -> None:
 
 
 def _store(produced: list[Path], key: str, ext: str = "png") -> list[Path]:
+    item_mod.prepare_home()
     cache = item_mod.cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
     artifacts = []
@@ -373,6 +374,7 @@ def render_item(it: item_mod.Item, *, registry: dict | None = None,
 
 
 def _scratch() -> str:
+    item_mod.prepare_home()
     path = item_mod.cache_dir() / "tmp"
     path.mkdir(parents=True, exist_ok=True)
     return str(path)

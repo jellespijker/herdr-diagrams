@@ -12,9 +12,9 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import detect, herdr, item, render, skill, viewers
+from . import daemon, detect, herdr, item, render, skill, viewers
 
-EXIT_RUNTIME, EXIT_USAGE, EXIT_DETECT = 1, 2, 3
+EXIT_RUNTIME, EXIT_USAGE, EXIT_DETECT, EXIT_SANDBOX = 1, 2, 3, 4
 
 
 def version() -> str:
@@ -35,12 +35,13 @@ def ensure_viewer(pane: str | None, cwd: str | None = None) -> str:
     if viewers.lookup(pane):
         return "running"
     if not herdr.binary():
-        return "no-herdr"
+        return "daemon" if daemon.running() else "no-herdr"
     viewers.mark_pending(pane)
     result = herdr.open_viewer(pane, cwd)
     if result is None:
         viewers.forget(pane)
-        return "open-failed"
+        # A sandboxed agent cannot reach the herdr socket; the daemon opens the viewer.
+        return "daemon" if daemon.running() else "open-failed"
     return "opened"
 
 
@@ -56,9 +57,23 @@ def _origin_from_herdr(pane: str | None) -> tuple[str | None, str | None]:
     return harness, session
 
 
+SANDBOX_HINT = """\
+herdr-diagram show: {error}
+The agent probably runs in a sandbox or with restricted file access. Nothing was queued.
+- Claude Code: run `herdr-diagram allow claude` once (adds the permission rules), or
+  put the diagram in your answer as a fenced ```mermaid block if the Stop hook is installed.
+- Codex: add {home} to writable_roots in ~/.codex/config.toml.
+- Other agents: allow writes to {home}. See "Approval modes and sandboxes" in the README."""
+
+
 def cmd_show(args) -> int:
     registry = render.load_registry()
     pane = current_pane(args.pane)
+    try:
+        item.check_writable()
+    except item.SandboxError as exc:
+        print(SANDBOX_HINT.format(error=exc.strerror, home=item.home()), file=sys.stderr)
+        return EXIT_SANDBOX
     source = path = None
     if args.file in (None, "-"):
         if args.file is None and sys.stdin.isatty():
@@ -102,6 +117,7 @@ def cmd_show(args) -> int:
              "opened": f"viewer opened beside pane {pane}",
              "not-opened": "queued",
              "no-herdr": "queued (herdr not found; open the viewer manually)",
+             "daemon": f"queued; the viewer beside pane {pane} shows it in a moment",
              "open-failed": "queued (could not open the viewer; run the herdr-diagrams.open action)"}[state]
     if not pane:
         where = "queued outside herdr (no HERDR_PANE_ID); run `herdr-diagram render` for a file"
@@ -211,6 +227,7 @@ def cmd_open(args) -> int:
     if not pane:
         print("herdr-diagram open: no pane; run inside herdr or pass --pane", file=sys.stderr)
         return EXIT_USAGE
+    daemon.ensure()
     state = ensure_viewer(pane)
     print(f"viewer for {pane}: {state}")
     return 0 if state in ("opened", "running") else EXIT_RUNTIME
@@ -255,6 +272,9 @@ def cmd_doctor(args) -> int:
                           else "yes") if inside else "no (run it in a herdr pane)", inside)
     setting = _kitty_graphics_setting()
     line("kitty_graphics", setting, "OFF" not in setting)
+    alive = daemon.running()
+    line("viewer daemon", "running" if alive else "not running (starts with herdr or the open action)",
+         alive)
     print("paths")
     line("home", str(item.home()))
     line("config", str(render.config_dir()))
@@ -324,8 +344,7 @@ def cmd_hook(args) -> int:
             if written:
                 ensure_viewer(pane, data.get("cwd"))
     except Exception as exc:  # a hook must never break the agent
-        log = item.home() / "hook-errors.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
+        log = item.prepare_home() / "hook-errors.log"
         with open(log, "a") as handle:
             handle.write(f"{time.ctime()} {args.name}: {exc!r}\n")
     return 0
@@ -355,10 +374,27 @@ def _log_event(event: str, raw: str, keep: int = 50) -> None:
     try:
         lines = log.read_text().splitlines()[-(keep - 1):] if log.exists() else []
         lines.append(json.dumps({"t": int(time.time()), "event": event, "payload": raw[:2000]}))
-        log.parent.mkdir(parents=True, exist_ok=True)
+        item.prepare_home()
         log.write_text("\n".join(lines) + "\n")
     except OSError:
         pass
+
+
+def cmd_daemon(args) -> int:
+    return daemon.run()
+
+
+def cmd_allow(args) -> int:
+    from .harness import claude
+
+    claude_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    settings = Path(args.settings).expanduser() if args.settings else claude_dir / "settings.json"
+    try:
+        print(claude.allow(settings, item.home(), uninstall=args.uninstall))
+    except (OSError, ValueError) as exc:
+        print(f"herdr-diagram allow: {exc}", file=sys.stderr)
+        return EXIT_RUNTIME
+    return 0
 
 
 def cmd_event(args) -> int:
@@ -371,6 +407,7 @@ def cmd_event(args) -> int:
     except ValueError:
         return 0
     data = data.get("data", data) if isinstance(data, dict) else {}
+    daemon.ensure()  # plugin hooks run outside agent sandboxes
     if event == "startup":
         prune_missing_panes()
         gc(time.time() - _parse_age("7d"))
@@ -532,6 +569,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--settings", help="settings.json to edit (default: ~/.claude/settings.json)")
     p.add_argument("--uninstall", action="store_true")
     p.set_defaults(func=cmd_install_hook)
+
+    p = sub.add_parser("allow", help="let Claude Code run show without prompts, also when sandboxed")
+    p.add_argument("harness", choices=["claude"])
+    p.add_argument("--settings", help="settings.json to edit (default: ~/.claude/settings.json)")
+    p.add_argument("--uninstall", action="store_true")
+    p.set_defaults(func=cmd_allow)
+
+    p = sub.add_parser("daemon", help=argparse.SUPPRESS)
+    p.set_defaults(func=cmd_daemon)
 
     p = sub.add_parser("hook", help="harness hook entry point")
     p.add_argument("name", choices=["claude-stop"])

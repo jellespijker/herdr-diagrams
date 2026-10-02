@@ -99,8 +99,7 @@ def _is_ours(handler: dict) -> bool:
     return HOOK_MARKER in command or command.endswith("claude-stop.sh")
 
 
-def install_hook(settings: Path, command: str, uninstall: bool = False) -> str:
-    """Add (or remove) the Stop hook in a Claude Code settings.json. Idempotent."""
+def _load(settings: Path) -> tuple[Path, dict]:
     settings = settings.expanduser()
     if settings.is_symlink():  # dotfile managers link settings.json; edit the target
         settings = settings.resolve()
@@ -108,7 +107,29 @@ def install_hook(settings: Path, command: str, uninstall: bool = False) -> str:
     if settings.is_file():
         text = settings.read_text()
         data = json.loads(text) if text.strip() else {}
-    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict) or \
+    if not isinstance(data, dict):
+        raise ValueError(f"unexpected structure in {settings}; edit it by hand")
+    return settings, data
+
+
+def _save(settings: Path, data: dict) -> None:
+    mode = 0o600
+    if settings.is_file():
+        mode = settings.stat().st_mode & 0o777
+        backup = settings.with_name(settings.name + ".bak-herdr-diagrams")
+        backup.write_text(settings.read_text())
+        os.chmod(backup, mode)
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    tmp = settings.with_name(f".{settings.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.chmod(tmp, mode)
+    tmp.replace(settings)
+
+
+def install_hook(settings: Path, command: str, uninstall: bool = False) -> str:
+    """Add (or remove) the Stop hook in a Claude Code settings.json. Idempotent."""
+    settings, data = _load(settings)
+    if not isinstance(data.get("hooks", {}), dict) or \
             not isinstance(data.get("hooks", {}).get("Stop", []), list):
         raise ValueError(f"unexpected structure in {settings}; edit it by hand")
     stop = data.setdefault("hooks", {}).setdefault("Stop", [])
@@ -129,15 +150,37 @@ def install_hook(settings: Path, command: str, uninstall: bool = False) -> str:
             return f"already installed in {settings}"
         stop.append({"hooks": [{"type": "command", "command": command, "timeout": 120}]})
         action = "installed in"
-    mode = 0o600
-    if settings.is_file():
-        mode = settings.stat().st_mode & 0o777
-        backup = settings.with_name(settings.name + ".bak-herdr-diagrams")
-        backup.write_text(settings.read_text())
-        os.chmod(backup, mode)
-    settings.parent.mkdir(parents=True, exist_ok=True)
-    tmp = settings.with_name(f".{settings.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    os.chmod(tmp, mode)
-    tmp.replace(settings)
+    _save(settings, data)
     return f"Stop hook {action} {settings}"
+
+
+def allow_rules(state_dir: Path) -> list[str]:
+    """Permission rules that let `show` run without prompts, also in Claude's sandbox."""
+    try:
+        path = "~/" + str(state_dir.relative_to(Path.home()))
+    except ValueError:
+        path = "/" + str(state_dir)  # Claude Code: `//abs/path` is an absolute path
+    return ["Bash(herdr-diagram:*)", f"Edit({path}/**)"]
+
+
+def allow(settings: Path, state_dir: Path, uninstall: bool = False) -> str:
+    """Add (or remove) the permission rules in a Claude Code settings.json. Idempotent."""
+    settings, data = _load(settings)
+    permissions = data.setdefault("permissions", {})
+    if not isinstance(permissions, dict) or not isinstance(permissions.get("allow", []), list):
+        raise ValueError(f"unexpected structure in {settings}; edit it by hand")
+    rules = permissions.setdefault("allow", [])
+    wanted = allow_rules(state_dir)
+    if uninstall:
+        kept = [r for r in rules if r not in wanted]
+        if len(kept) == len(rules):
+            return f"no herdr-diagrams rules in {settings}"
+        permissions["allow"] = kept
+        _save(settings, data)
+        return f"removed {len(rules) - len(kept)} rules from {settings}"
+    missing = [r for r in wanted if r not in rules]
+    if not missing:
+        return f"already allowed in {settings}"
+    rules.extend(missing)
+    _save(settings, data)
+    return f"added {', '.join(missing)} to permissions.allow in {settings}"

@@ -16,3 +16,4 @@ old one and set the old one's status to `Superseded by ADR-NNNN`.
 | [0008](0008-scroll-sync-by-chat-anchors.md) | Scroll sync by anchors in the visible chat text | Accepted |
 | [0009](0009-archive-on-lifecycle-events.md) | Follow pane and agent lifecycles; archive instead of delete | Accepted |
 | [0010](0010-platform-support.md) | Platform support: Linux and macOS; Windows later | Accepted |
+| [0011](0011-sandboxes-and-the-viewer-daemon.md) | Work inside agent sandboxes; a plugin daemon opens viewers | Accepted |
