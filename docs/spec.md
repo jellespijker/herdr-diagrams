@@ -432,7 +432,10 @@ The `open` action and `show` both call `herdr plugin pane open --entrypoint view
 The direction is `right` when the source pane is at least 120 columns wide and wider than
 2.2 times its height, else `down`.
 
-Suggested key: `prefix+d` → `herdr-diagrams.open`.
+Keybinding: a manifest cannot declare keys, so `herdr-diagram setup-keys` (also the actions
+`setup-keys` / `remove-keys`) manages a marked `[[keys.command]]` block in herdr's config.toml:
+default `prefix+i` → `herdr-diagrams.open`, refusing keys used in the config or by herdr's
+built-in bindings, validated with `herdr config check`, followed by `herdr server reload-config`.
 
 ## 12. Implementation
 

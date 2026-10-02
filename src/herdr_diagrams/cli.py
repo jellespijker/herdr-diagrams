@@ -12,7 +12,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import daemon, detect, herdr, item, render, skill, terminal, viewers
+from . import daemon, detect, herdr, item, keys, render, skill, terminal, viewers
 
 EXIT_RUNTIME, EXIT_USAGE, EXIT_DETECT, EXIT_SANDBOX = 1, 2, 3, 4
 
@@ -282,6 +282,10 @@ def cmd_doctor(args) -> int:
                           else "yes") if inside else "no (run it in a herdr pane)", inside)
     setting = terminal.kitty_graphics_setting()
     line("kitty_graphics", setting, "OFF" not in setting)
+    bound = keys.installed_key(keys.config_path().read_text()) if keys.config_path().is_file() else None
+    line("keybinding", f"{bound} opens the viewer" if bound
+         else "none: run `herdr-diagram setup-keys` to add one to the herdr menu",
+         True if bound else "warn")
     alive = daemon.running()
     line("viewer daemon", "running" if alive else "not running (starts with herdr or the open action)",
          alive)
@@ -327,8 +331,9 @@ def setup_message() -> tuple[str, str, bool]:
     verdict = "shows diagrams inline" if info.support == "yes" else (
         "may show diagrams inline (untested)" if info.support == "partial"
         else "is not recognised; if no image appears, press o in the viewer")
-    return (f"Diagrams {version()} ready", f"{label} {verdict}. Run the action 'Diagrams: install "
-            "skill and CLI for all agents' once, then ask an agent for a diagram.", False)
+    return (f"Diagrams {version()} ready", f"{label} {verdict}. Run the actions 'Diagrams: install "
+            "skill and CLI for all agents' and 'Diagrams: add keybinding' once, then ask an agent "
+            "for a diagram.", False)
 
 
 def notify_setup(force: bool = False) -> bool:
@@ -449,6 +454,29 @@ def _log_event(event: str, raw: str, keep: int = 50) -> None:
         log.write_text("\n".join(lines) + "\n")
     except OSError:
         pass
+
+
+def cmd_setup_keys(args) -> int:
+    """Add (or remove) the viewer keybinding in herdr's config.toml, then reload herdr."""
+    path = keys.config_path()
+    changed, message = keys.setup(args.key, remove=args.remove, path=path)
+    status = 0 if changed or "already" in message else EXIT_USAGE
+    exe = herdr.binary()
+    if changed and exe:
+        check = subprocess.run([exe, "config", "check"], capture_output=True, text=True)
+        if check.returncode != 0:  # herdr rejects it: put the old file back
+            backup = path.with_name(path.name + ".bak-herdr-diagrams")
+            if backup.is_file():
+                os.replace(backup, path)
+            message = f"herdr rejected the change, restored {path}: {check.stdout or check.stderr}".strip()
+            status = EXIT_RUNTIME
+        else:
+            herdr.call("server", "reload-config")
+            message += "; herdr reloaded its config"
+    print(message, file=sys.stdout if status == 0 else sys.stderr)
+    if os.environ.get("HERDR_PLUGIN_ACTION_ID"):  # started from the herdr menu: show the result
+        herdr.call("notification", "show", "Diagrams keybinding", "--body", message)
+    return status
 
 
 def cmd_daemon(args) -> int:
@@ -655,6 +683,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--settings", help="settings.json to edit (default: ~/.claude/settings.json)")
     p.add_argument("--uninstall", action="store_true")
     p.set_defaults(func=cmd_allow)
+
+    p = sub.add_parser("setup-keys", help="add a herdr keybinding that opens the viewer (default prefix+i)")
+    p.add_argument("--key", help=f"herdr key, for example prefix+i (default {keys.DEFAULT_KEY})")
+    p.add_argument("--remove", action="store_true")
+    p.set_defaults(func=cmd_setup_keys)
 
     p = sub.add_parser("daemon", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_daemon)

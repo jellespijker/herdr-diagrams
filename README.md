@@ -154,15 +154,17 @@ herdr-diagram allow claude             # let it run `show` without prompts, also
 Both edit `~/.claude/settings.json` (or the file it links to), keep its file mode and write a
 backup. `--uninstall` reverts each.
 
-Optional key binding in `~/.config/herdr/config.toml`:
+Keybinding: plugins cannot register keys themselves; herdr's menu shows the bindings in
+`~/.config/herdr/config.toml`. Add one with the action "Diagrams: add keybinding", or:
 
-```toml
-[[keys.command]]
-key = "prefix+d"
-type = "plugin_action"
-command = "herdr-diagrams.open"
-description = "open diagram viewer"
+```sh
+herdr-diagram setup-keys                 # prefix+i opens the viewer beside the current pane
+herdr-diagram setup-keys --key prefix+m  # another key; taken keys are refused with a suggestion
+herdr-diagram setup-keys --remove
 ```
+
+It writes a marked `[[keys.command]]` block (with a backup), checks the file with
+`herdr config check` and reloads herdr.
 
 ## Use
 
@@ -264,6 +266,7 @@ herdr-diagram export             write PNG, SVG and source files (see Export)
 herdr-diagram open               open the viewer beside this pane
 herdr-diagram doctor             check herdr, graphics, renderers and links
 herdr-diagram install-skill      link skill and CLI (--status, --uninstall)
+herdr-diagram setup-keys         herdr keybinding for the viewer (default prefix+i)
 herdr-diagram install-hook claude  automatic Stop hook for Claude Code
 herdr-diagram allow claude         permission rules for Claude Code (no prompts, sandbox)
 herdr-diagram gc                 delete diagrams, archives and images older than 7 days

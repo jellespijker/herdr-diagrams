@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 (2026-10-02)
+
+- `herdr-diagram setup-keys` and the action "Diagrams: add keybinding": add `prefix+i` (or
+  another free key) to herdr's config.toml so the viewer shows up in herdr's menu; taken keys
+  are refused with a suggestion. `doctor` reports the binding.
+- The README no longer suggests `prefix+d`, which is herdr's detach key.
+
 ## 0.1.3 (2026-10-02)
 
 - Mouse: wheel zooms around the pointer, drag pans, Shift+wheel or a horizontal wheel pans
