@@ -286,6 +286,10 @@ Diagram sources come from agents, so they are treated as untrusted input:
   the Kitty graphics protocol, or `kitty_graphics` is off in herdr's config. Press `o` to
   open the image externally.
 - **`renderer not installed: plantuml`.** Install the tool from the table above.
+- **Mermaid fails with "could not start its sandbox" (Ubuntu 23.10+).** Ubuntu restricts the
+  user namespaces Chromium's sandbox needs: `sudo sysctl -w
+  kernel.apparmor_restrict_unprivileged_userns=0` (persist it in `/etc/sysctl.d`), or set
+  `PUPPETEER_EXECUTABLE_PATH` to an installed Chrome or Chromium.
 - **Mermaid fails with a browser error.** Run `npx puppeteer browsers install
   chrome-headless-shell` in the plugin directory, or install Chromium; the plugin falls
   back to a system Chromium or Chrome.

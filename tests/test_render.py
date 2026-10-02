@@ -15,14 +15,13 @@ def assert_png(result):
         assert data.startswith(PNG) and len(data) > 100
 
 
-@pytest.mark.parametrize("fmt, fixture, marks", [
-    ("mermaid", "sample.mmd", needs_mmdc),
-    ("plantuml", "sample.puml", needs("plantuml")),
-    ("d2", "sample.d2", needs("d2")),
-    ("graphviz", "sample.dot", needs("dot")),
+@pytest.mark.parametrize("fmt, fixture", [
+    pytest.param("mermaid", "sample.mmd", marks=needs_mmdc),
+    pytest.param("plantuml", "sample.puml", marks=needs("plantuml")),
+    pytest.param("d2", "sample.d2", marks=needs("d2")),
+    pytest.param("graphviz", "sample.dot", marks=needs("dot")),
 ])
-def test_golden_render(fmt, fixture, marks, request):
-    request.applymarker(marks)
+def test_golden_render(fmt, fixture):
     for theme in ("dark", "light"):
         result = render.render_source(fmt, (FIXTURES / fixture).read_bytes(), theme=theme)
         assert_png(result)

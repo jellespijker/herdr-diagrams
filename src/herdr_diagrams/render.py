@@ -176,6 +176,13 @@ def _chromium_env() -> dict:
     return {}
 
 
+BROWSER_HINT = (
+    "Mermaid's headless Chromium could not start its sandbox. Ubuntu 23.10 and later restrict "
+    "unprivileged user namespaces: run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` "
+    "(and add it to /etc/sysctl.d to keep it), or point PUPPETEER_EXECUTABLE_PATH at an installed "
+    "Chrome or Chromium that has an AppArmor profile.")
+
+
 def _exec(argv: list[str], *, stdin: bytes | None, cwd: str | None, env: dict | None,
           timeout: float) -> subprocess.CompletedProcess:
     """Run argv in its own process group; on timeout kill the whole group.
@@ -229,6 +236,8 @@ def _run(entry: dict, theme: str, source: bytes, workdir: Path, cwd: str | None,
     stderr = proc.stderr.decode(errors="replace")
     if proc.returncode != 0:
         tail = "\n".join(stderr.strip().splitlines()[-20:])
+        if "Failed to launch the browser process" in stderr:
+            tail = BROWSER_HINT + "\n" + tail
         raise RenderError(f"{Path(argv[0]).name} exited with {proc.returncode}", tail)
     if stdio:
         out_file.write_bytes(proc.stdout)

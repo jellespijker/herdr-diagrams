@@ -38,14 +38,20 @@ def spawn_viewer(bind: str):
 
 
 def stop(pid, fd):
+    """Quit with q; fall back to SIGTERM (handled: cleans up), then SIGKILL. Always reap."""
     try:
         os.write(fd, b"q")
-        for _ in range(50):
-            done, _ = os.waitpid(pid, os.WNOHANG)
-            if done:
-                return
-            time.sleep(0.1)
-        os.kill(pid, signal.SIGKILL)
+        for sig in (None, signal.SIGTERM, signal.SIGKILL):
+            if sig:
+                try:
+                    os.kill(pid, sig)
+                except ProcessLookupError:
+                    return
+            for _ in range(100):
+                done, _ = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    return
+                time.sleep(0.1)
     finally:
         os.close(fd)
 

@@ -26,6 +26,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y graphviz librsvg2-bin
+          # Chromium (Mermaid) needs unprivileged user namespaces for its sandbox
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           curl -fsSL https://d2lang.com/install.sh | sh -s --
 
       - name: Renderers (macOS)
