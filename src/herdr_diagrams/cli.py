@@ -93,6 +93,8 @@ def cmd_show(args) -> int:
         return EXIT_USAGE if args.format else EXIT_DETECT
     if path and fmt != "image":
         source, path = Path(path).read_text(errors="replace"), None
+    if source is not None:
+        source = detect.normalize(fmt, source)
     harness, session = _origin_from_herdr(pane)
     try:
         it = item.new(fmt, source=source, path=path, title=args.title, pane=pane,

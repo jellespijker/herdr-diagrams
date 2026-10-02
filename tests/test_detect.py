@@ -66,3 +66,23 @@ def test_every_registry_entry_has_detect_keys_and_a_fixture():
     for key, entry in REGISTRY.items():
         assert entry.get("detect"), key
         assert (FIXTURES / f"sample.{exts[key]}").is_file(), f"no fixture for {key}"
+
+
+def test_fenced_blocks_all_formats_indented_and_aliases():
+    text = (
+        "1. Sequence:\n   ```plantuml\n   Alice -> Bob: hi\n   ```\n"
+        "```structurizr-dsl\nworkspace {\n}\n```\n"
+        "  ```d2\n  a -> b\n  ```\n"
+        "```graphviz\ndigraph { a -> b }\n```\n"
+        "```c4plantuml\n@startuml\nPerson(u, \"User\")\n@enduml\n```\n"
+    )
+    blocks = detect.fenced_blocks(text)
+    assert [fmt for fmt, _ in blocks] == ["plantuml", "structurizr", "d2", "graphviz", "plantuml"]
+    assert blocks[0][1] == "@startuml\nAlice -> Bob: hi\n@enduml\n"  # wrapped, indent removed
+    assert blocks[2][1] == "a -> b"
+
+
+def test_normalize_leaves_complete_sources_alone():
+    mindmap = "@startmindmap\n* a\n@endmindmap"
+    assert detect.normalize("plantuml", mindmap) == mindmap
+    assert detect.normalize("mermaid", "flowchart LR") == "flowchart LR"

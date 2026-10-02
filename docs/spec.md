@@ -117,7 +117,7 @@ The folder is private (`0700`).
     "harness": "claude",
     "pane": "w1:p3",
     "session": "4f1c...",
-    "cwd": "/home/jelle/dev/jelle/foo",
+    "cwd": "/home/me/projects/shop",
     "via": "cli"
   },
   "created": 1790942162

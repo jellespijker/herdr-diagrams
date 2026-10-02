@@ -113,14 +113,24 @@ def detect(registry: dict, *, fmt: str | None = None, path: str | None = None,
 # Fence info strings that adapters treat as diagrams, mapped to registry keys.
 FENCE_NAMES = {
     "mermaid": "mermaid", "mmd": "mermaid",
-    "plantuml": "plantuml", "puml": "plantuml", "uml": "plantuml",
-    "structurizr": "structurizr",
+    "plantuml": "plantuml", "puml": "plantuml", "uml": "plantuml", "c4plantuml": "plantuml",
+    "structurizr": "structurizr", "structurizr-dsl": "structurizr",
     "d2": "d2",
     "dot": "graphviz", "graphviz": "graphviz", "gv": "graphviz",
 }
 
-_FENCE = re.compile(r"^(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[\w+.-]+)[^\n]*\n(?P<body>.*?)^(?P=fence)[ \t]*$",
-                    re.MULTILINE | re.DOTALL)
+# Up to three spaces of indentation, as in CommonMark; code blocks inside list items.
+_FENCE = re.compile(
+    r"^(?P<indent>[ ]{0,3})(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[\w+.-]+)[^\n]*\n"
+    r"(?P<body>.*?)^[ ]{0,3}(?P=fence)[ \t]*$",
+    re.MULTILINE | re.DOTALL)
+
+
+def normalize(fmt: str, source: str) -> str:
+    """Repair common omissions in agent-written sources before rendering."""
+    if fmt == "plantuml" and not re.search(r"^\s*@start\w+", source, re.MULTILINE):
+        return f"@startuml\n{source.strip()}\n@enduml\n"
+    return source
 
 
 def fenced_blocks(text: str) -> list[tuple[str, str]]:
@@ -128,7 +138,9 @@ def fenced_blocks(text: str) -> list[tuple[str, str]]:
     blocks = []
     for match in _FENCE.finditer(text):
         fmt = FENCE_NAMES.get(match.group("info").lower())
-        body = match.group("body").strip("\n")
+        indent = len(match.group("indent"))
+        lines = match.group("body").strip("\n").splitlines()
+        body = "\n".join(line[indent:] if line[:indent].isspace() else line for line in lines)
         if fmt and body.strip():
-            blocks.append((fmt, body))
+            blocks.append((fmt, normalize(fmt, body)))
     return blocks
