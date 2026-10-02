@@ -13,3 +13,4 @@ npx --yes puppeteer browsers install chrome-headless-shell >/dev/null 2>&1 || \
 
 echo "herdr-diagrams installed. Checking this machine:"
 python3 bin/herdr-diagram doctor --brief || true
+python3 bin/herdr-diagram doctor --notify >/dev/null 2>&1 || true  # visible toast in herdr

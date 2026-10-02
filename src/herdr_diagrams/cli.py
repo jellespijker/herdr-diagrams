@@ -251,6 +251,11 @@ def cmd_doctor(args) -> int:
         print(f"  {mark} {label:<22} {value}")
 
     print(f"herdr-diagrams {version()}  ({render.ROOT})")
+    if args.notify:
+        title, body, _ = setup_message()
+        print(f"{title}\n{body}")
+        notify_setup(force=True)
+        return 0
     if args.brief:
         return doctor_brief()
     print("system")
@@ -305,6 +310,42 @@ def cmd_doctor(args) -> int:
                   "your image viewer, s for its source.")
     wait_for_key(args)
     return 0
+
+
+def setup_message() -> tuple[str, str, bool]:
+    """(title, body, problem) describing whether diagrams work on this machine."""
+    os_name, os_support, os_note = terminal.platform()
+    if os_support == "no":
+        return "Diagrams: not supported here", f"{os_name}: {os_note}.", True
+    info = terminal.detect()
+    problem = terminal.image_problem(info)
+    if problem:
+        return ("Diagrams: no images in this terminal",
+                f"{problem} Diagrams still work: press o in the viewer to open them, s for the "
+                "source. Ghostty, kitty and WezTerm show them inline.", True)
+    label = info.name or "this terminal"
+    verdict = "shows diagrams inline" if info.support == "yes" else (
+        "may show diagrams inline (untested)" if info.support == "partial"
+        else "is not recognised; if no image appears, press o in the viewer")
+    return (f"Diagrams {version()} ready", f"{label} {verdict}. Run the action 'Diagrams: install "
+            "skill and CLI for all agents' once, then ask an agent for a diagram.", False)
+
+
+def notify_setup(force: bool = False) -> bool:
+    """Show the setup verdict as a herdr notification when it changed (or `force`)."""
+    title, body, problem = setup_message()
+    state = item.prepare_home() / "notified.json"
+    key = {"version": version(), "title": title, "body": body}
+    try:
+        if not force and json.loads(state.read_text()) == key:
+            return False
+    except (OSError, ValueError):
+        pass
+    if herdr.call("notification", "show", title, "--body", body, "--position", "top-right",
+                  "--sound", "request" if problem else "none") is None and not herdr.binary():
+        return False
+    state.write_text(json.dumps(key))
+    return True
 
 
 def doctor_brief() -> int:
@@ -439,6 +480,7 @@ def cmd_event(args) -> int:
     data = data.get("data", data) if isinstance(data, dict) else {}
     daemon.ensure()  # plugin hooks run outside agent sandboxes
     if event == "startup":
+        notify_setup()
         prune_missing_panes()
         gc(time.time() - _parse_age("7d"))
     elif event == "pane.closed":
@@ -587,6 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("doctor", help="check OS, terminal, herdr, renderers and skills")
     p.add_argument("--wait", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--brief", action="store_true", help="three-line summary")
+    p.add_argument("--notify", action="store_true", help="also show the summary as a herdr notification")
     p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("popup", help=argparse.SUPPRESS)

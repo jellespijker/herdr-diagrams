@@ -82,7 +82,8 @@ project. `export` writes into the project only when you ask for it.
 The viewer draws with the Kitty graphics protocol, and herdr forwards only that protocol (no
 Sixel, no iTerm2 inline images). The outer terminal decides, and the plugin checks it for you:
 it reads the environment of the herdr client running in your terminal, and reports the
-result at install time, in `herdr-diagram doctor`, in the viewer pane and to the agent.
+result as a herdr notification after install (and at herdr startup when it changed), in
+`herdr-diagram doctor`, in the viewer pane and to the agent.
 
 | Terminal | Status |
 |---|---|

@@ -109,3 +109,27 @@ def test_allow_rules_for_claude(tmp_path):
     assert json.loads(settings.read_text())["permissions"]["allow"] == ["Read"]
     default = Path.home() / ".local" / "state" / "herdr-diagrams"
     assert claude.allow_rules(default)[-1] == "Edit(~/.local/state/herdr-diagrams/**)"
+
+
+def test_setup_notification_once_per_verdict(fake_herdr, monkeypatch):
+    from herdr_diagrams import cli, terminal
+
+    monkeypatch.setattr(terminal, "_processes", lambda: [])
+    monkeypatch.setenv("TERM_PROGRAM", "ghostty")
+    monkeypatch.setenv("HERDR_DIAGRAMS_IMAGES", "auto")
+    monkeypatch.setattr(terminal, "kitty_graphics_setting", lambda: "default (on)")
+    title, body, problem = cli.setup_message()
+    assert not problem and "Ghostty shows diagrams inline" in body
+    assert cli.notify_setup() is True
+    assert cli.notify_setup() is False  # unchanged: no second toast
+    monkeypatch.setenv("HERDR_DIAGRAMS_IMAGES", "off")
+    assert cli.notify_setup() is True
+    assert "notification show Diagrams: no images" in fake_herdr.read_text().replace("\n", " ")
+
+
+def test_setup_message_on_windows(monkeypatch):
+    from herdr_diagrams import cli, terminal
+
+    monkeypatch.setattr(terminal.sys, "platform", "win32")
+    title, body, problem = cli.setup_message()
+    assert problem and "not supported" in title

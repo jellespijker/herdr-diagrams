@@ -320,7 +320,8 @@ of the current herdr session (Linux `/proc`, macOS `ps -E`), falling back to the
 environment. It maps the terminal to `yes` (Ghostty, kitty, WezTerm), `partial` (Konsole,
 iTerm2 3.6+, Warp), `no` (Alacritty, foot, VTE terminals, xterm, Windows Terminal,
 Terminal.app, VS Code, JetBrains) or `unknown`, and notes tmux, zellij, screen and SSH. Results
-appear in `doctor`, `doctor --brief` (run at the end of the install build), the viewer (a
+appear in a herdr notification (after install and at startup when the verdict changed;
+`doctor --notify` forces it), `doctor`, `doctor --brief`, the viewer (a
 message instead of an image when images cannot work) and `show` output ("Note for the user").
 `images = "auto" | "on" | "off"` overrides the detection. The OS check accepts Linux and macOS;
 Windows commands that cannot work exit with a clear message.

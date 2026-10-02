@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 (2026-10-02)
+
+- Show the OS and terminal verdict as a herdr notification after install and at herdr
+  startup when it changed (herdr's toast setting decides: in the terminal or as a desktop
+  notification). `herdr-diagram doctor --notify` shows it on demand.
+
 ## 0.1.1 (2026-10-02)
 
 - Detect the outer terminal (from the herdr client process) and the OS. Report them at
