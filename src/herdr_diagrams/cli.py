@@ -217,6 +217,7 @@ def cmd_doctor(args) -> int:
     print(f"renderers (theme: {render.load_settings()['theme']})")
     registry = render.load_registry()
     for key, (available, program) in render.availability(registry).items():
+        program = program.replace(str(render.ROOT) + "/", "")  # bundled tools: plugin-relative
         line(key, program if available else f"missing: {program}", available)
     for name in ("rsvg-convert", "magick", "ffmpeg"):
         found = shutil.which(name)
