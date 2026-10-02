@@ -243,13 +243,37 @@ def write(item: Item, pane: str | None = None) -> Path:
     validate(item.to_json())
     prepare_home()
     target_dir = spool_dir(pane if pane is not None else item.origin.get("pane"))
-    target_dir.mkdir(parents=True, exist_ok=True)
     final = target_dir / f"{item.id}.json"
     tmp = target_dir / f"{item.id}.json.tmp"
-    tmp.write_text(json.dumps(item.to_json(), indent=1))
-    os.replace(tmp, final)
+    for attempt in (1, 2):  # `gc` may remove an empty pane directory between mkdir and write
+        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            tmp.write_text(json.dumps(item.to_json(), indent=1))
+            os.replace(tmp, final)
+            break
+        except FileNotFoundError:
+            if attempt == 2:
+                raise
     item.file = final
     return final
+
+
+def rewrite(item: Item) -> bool:
+    """Replace an Item's file in place. False when it was archived or removed meanwhile."""
+    if item.file is None:
+        return False
+    validate(item.to_json())
+    tmp = item.file.with_name(f".{item.file.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(item.to_json(), indent=1))
+        if not item.file.exists():
+            tmp.unlink()
+            return False
+        os.replace(tmp, item.file)
+        return True
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        return False
 
 
 def read(file: Path) -> Item:

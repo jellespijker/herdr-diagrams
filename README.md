@@ -50,16 +50,18 @@ Diagrams and images live outside the project, in `~/.local/state/herdr-diagrams`
 | Agent runs **`herdr-diagram show`** (the skill) | Yes, unless the command is allow-listed or the mode auto-approves | Needs write access to the state folder; the viewer is opened by the plugin's daemon, so no socket access is needed |
 | **Viewer, daemon, events** | Never: herdr runs them as the plugin | Not affected |
 
-Per agent, to run `show` without prompts and inside a sandbox (✓ tested here, · from the docs):
+Per agent, to run `show` without prompts and inside a sandbox (✓ tested here, · from the docs).
+Allow only `show` (and `list`): `render` and `export` write files to paths the caller
+chooses, so they should keep asking.
 
 | Agent | Allow the command | If its sandbox is on |
 |---|---|---|
-| Claude Code ✓ | `herdr-diagram allow claude` adds `Bash(herdr-diagram:*)` and `Edit(~/.local/state/herdr-diagrams/**)` to `permissions.allow` | The `Edit` rule also makes the folder writable in the sandbox (tested with the bubblewrap sandbox on Linux) |
-| Codex · | `prefix_rule(pattern=["herdr-diagram"], decision="allow")` in `~/.codex/rules/default.rules` | An allow rule runs the command outside the sandbox. Or add the folder to `[sandbox_workspace_write] writable_roots` |
-| opencode · | `"permission": {"bash": {"herdr-diagram *": "allow"}}` in `opencode.json` | No sandbox |
-| Copilot CLI · | `--allow-tool 'shell(herdr-diagram:*)'` | Off by default; else add the folder to `sandbox.userPolicy.filesystem.readwritePaths` |
-| agy · | `"permissions": {"allow": ["command(herdr-diagram)"]}` in `~/.gemini/antigravity-cli/settings.json` | `"allow": ["write_file(~/.local/state/herdr-diagrams)"]`, or `unsandboxed(herdr-diagram)` |
-| Gemini CLI · | `"tools": {"allowed": ["run_shell_command(herdr-diagram)"]}` | Container sandbox: mount the folder with `SANDBOX_MOUNTS` |
+| Claude Code ✓ | `herdr-diagram allow claude` adds `Bash(herdr-diagram show:*)`, `Bash(herdr-diagram list:*)` and `Edit(~/.local/state/herdr-diagrams/**)` to `permissions.allow` | The `Edit` rule also makes the folder writable in the sandbox (tested with the bubblewrap sandbox on Linux) |
+| Codex · | `prefix_rule(pattern=["herdr-diagram", "show"], decision="allow")` in `~/.codex/rules/default.rules` | An allow rule runs the command outside the sandbox. Or add the folder to `[sandbox_workspace_write] writable_roots` |
+| opencode · | `"permission": {"bash": {"herdr-diagram show *": "allow"}}` in `opencode.json` | No sandbox |
+| Copilot CLI · | `--allow-tool 'shell(herdr-diagram show:*)'` | Off by default; else add the folder to `sandbox.userPolicy.filesystem.readwritePaths` |
+| agy · | `"permissions": {"allow": ["command(herdr-diagram show)"]}` in `~/.gemini/antigravity-cli/settings.json` | `"allow": ["write_file(~/.local/state/herdr-diagrams)"]`, or `unsandboxed(herdr-diagram show)` |
+| Gemini CLI · | `"tools": {"allowed": ["run_shell_command(herdr-diagram show)"]}` | Container sandbox: mount the folder with `SANDBOX_MOUNTS` |
 
 Modes:
 
@@ -202,11 +204,13 @@ herdr-diagram export --all --archived    # include diagrams of earlier sessions
 ```
 
 Existing files with the same content are left alone; a different file with the same name
-gets a `-2` suffix.
+gets a `-2` suffix. Export never writes through a symlink, and image items export as PNG
+only (their path comes from the agent, so the original file is never copied).
 
 ### Cleanup
 
-Diagrams are archived, not deleted, and `gc` deletes archives after 7 days:
+Diagrams are archived, not deleted. `gc` (also run when herdr starts) deletes diagrams,
+archives and cached images older than 7 days:
 
 | When | What happens |
 |---|---|

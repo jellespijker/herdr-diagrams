@@ -102,9 +102,10 @@ def test_allow_rules_for_claude(tmp_path):
     assert "added" in claude.allow(settings, state)
     assert "already" in claude.allow(settings, state)
     rules = json.loads(settings.read_text())["permissions"]["allow"]
-    assert rules[0] == "Read" and "Bash(herdr-diagram:*)" in rules
+    assert rules[0] == "Read" and "Bash(herdr-diagram show:*)" in rules
+    assert "Bash(herdr-diagram:*)" not in rules  # render/export stay behind a prompt
     assert any(r.startswith("Edit(") and r.endswith("/**)") for r in rules)
-    assert "removed 2" in claude.allow(settings, state, uninstall=True)
+    assert "removed 3" in claude.allow(settings, state, uninstall=True)
     assert json.loads(settings.read_text())["permissions"]["allow"] == ["Read"]
     default = Path.home() / ".local" / "state" / "herdr-diagrams"
-    assert claude.allow_rules(default) == ["Bash(herdr-diagram:*)", "Edit(~/.local/state/herdr-diagrams/**)"]
+    assert claude.allow_rules(default)[-1] == "Edit(~/.local/state/herdr-diagrams/**)"

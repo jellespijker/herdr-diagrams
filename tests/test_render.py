@@ -121,3 +121,32 @@ def test_timeout_kills_the_process_group(tmp_path):
     started = time.time()
     result = render.render_source("slow", b"x", registry=render.load_registry())
     assert "timed out" in result.error and time.time() - started < 10
+
+
+def test_export_refuses_symlinks_and_never_copies_image_paths(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    project = tmp_path / "project"
+    (project / "diagrams").mkdir(parents=True)
+    (project / "diagrams" / "evil.dot").symlink_to(outside / "planted.desktop")
+    it = item.new("graphviz", source="digraph { a -> b }", title="evil", cwd=str(project))
+    written, problems = render.export(it, project / "diagrams", kinds=("src",))
+    assert not (outside / "planted.desktop").exists()
+    assert [p.name for p in written] == ["evil-2.dot"]
+    linked = tmp_path / "linked"
+    linked.symlink_to(outside)
+    written, problems = render.export(it, linked, kinds=("src",))
+    assert written == [] and "symlink" in problems[0]
+    secret = tmp_path / "id_ed25519"
+    secret.write_text("TOPSECRET")
+    leak = item.new("image", path=str(secret))
+    written, problems = render.export(leak, project / "out")
+    assert written == [] and "not an image" in problems[0]
+    assert not any("TOPSECRET" in p.read_text(errors="ignore") for p in project.rglob("*") if p.is_file())
+
+
+def test_export_skips_identical_files(tmp_path):
+    it = item.new("d2", source="a -> b", title="same")
+    first, _ = render.export(it, tmp_path, kinds=("src",))
+    again, _ = render.export(it, tmp_path, kinds=("src",))
+    assert len(first) == 1 and again == []

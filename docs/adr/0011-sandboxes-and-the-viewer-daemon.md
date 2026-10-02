@@ -29,7 +29,7 @@ Hooks, plugin events, plugin panes and plugin startup commands all run outside a
 - **Clear failure.** `show` checks write access first. In a read-only sandbox it exits with
   status 4 and names the fix per agent. The skill tells the agent to fall back to a fenced
   diagram in its answer, which the Claude Stop hook still shows.
-- **Rules, not wider sandboxes.** `herdr-diagram allow claude` adds `Bash(herdr-diagram:*)` and
+- **Rules, not wider sandboxes.** `herdr-diagram allow claude` adds `Bash(herdr-diagram show:*)`, `Bash(herdr-diagram list:*)` and
   the `Edit` rule for the state folder. No socket exemptions and no `excludedCommands`: the
   renderers process untrusted input and stay sandboxed when the agent is.
 - **Skill.** Agents call `herdr-diagram` as one plain command, so allow rules match.
@@ -41,3 +41,14 @@ Hooks, plugin events, plugin panes and plugin startup commands all run outside a
 - One small background process per herdr session in which the plugin is active.
 - Agents other than Claude Code are configured by hand; the README lists the settings, marked
   as tested or taken from the docs.
+
+## Amendment (2026-10-02, pre-release review)
+
+- The allow rules cover `show` and `list` only. `render` and `export` write to paths the
+  caller names and keep their approval prompt.
+- Item fields are agent-controlled, and the viewer exports outside the agent's sandbox.
+  Export therefore never writes through a symlink (`O_NOFOLLOW`, no symlinked target
+  directory), ignores an `origin.cwd` that is not an existing directory, and exports image
+  Items as PNG only. Image Items must have an image extension and matching content.
+- The daemon marks an Item as handled only after a viewer exists, so a `show` that is still
+  holding its pending claim cannot make the daemon skip it.

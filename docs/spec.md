@@ -273,7 +273,7 @@ herdr-diagram gc [--older-than 7d]
 | `doctor` | Report: herdr binary and version, `HERDR_PANE_ID`, `kitty_graphics` setting, paths, each renderer available or missing, image conversion tool, skill link status. |
 | `install-skill` | §10. |
 | `install-hook` | Add or remove the Claude Code `Stop` hook in `~/.claude/settings.json` (§9.2). Idempotent; keeps other hooks; writes a `.bak-herdr-diagrams` backup. |
-| `allow` | Add or remove `Bash(herdr-diagram:*)` and `Edit(<state folder>/**)` in Claude Code's `permissions.allow` ([ADR-0011](adr/0011-sandboxes-and-the-viewer-daemon.md)). |
+| `allow` | Add or remove `Bash(herdr-diagram show:*)`, `Bash(herdr-diagram list:*)` and `Edit(<state folder>/**)` in Claude Code's `permissions.allow` ([ADR-0011](adr/0011-sandboxes-and-the-viewer-daemon.md)). |
 | `daemon` | Background watcher, one per herdr session: opens viewers for new Items, fills in agent sessions ([ADR-0011](adr/0011-sandboxes-and-the-viewer-daemon.md)). Started by the plugin, not by hand. |
 | `hook` | Harness hook entry point. Always exits 0 and prints nothing; errors go to `hook-errors.log` in the home. |
 | `export` | Write the newest Item (or `-n`, or `--all`) as PNG, SVG and source into `export_dir` (default `{cwd}/diagrams`, light theme). Uses `svg_argv` from the registry for SVG. Same-content files are kept; different files get `-2`. |

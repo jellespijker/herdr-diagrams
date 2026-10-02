@@ -27,17 +27,26 @@ def lock_path() -> Path:
 
 
 def running() -> bool:
-    """True when another process holds this session's daemon lock."""
+    """True when this session's daemon process is alive (pid in the lock file)."""
     try:
-        with open(lock_path(), "a") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return True
-            fcntl.flock(handle, fcntl.LOCK_UN)
-            return False
-    except OSError:
+        pid = int(lock_path().read_text().strip() or 0)
+    except (OSError, ValueError):
         return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    cmdline = Path(f"/proc/{pid}/cmdline")
+    if cmdline.exists():  # Linux: guard against a recycled pid
+        try:
+            return b"daemon" in cmdline.read_bytes()
+        except OSError:
+            return False
+    return True
 
 
 def ensure() -> bool:
@@ -65,12 +74,12 @@ def enrich(pane: str, harness: str | None, session: str | None) -> None:
     if not session:
         return
     for it in item.list_items(pane):
-        if it.origin.get("session"):
+        if it.origin.get("session") or it.file is None:
             continue
         it.origin["session"] = session
         if harness and it.origin.get("harness", "unknown") == "unknown":
             it.origin["harness"] = {"antigravity": "agy", "gemini": "agy"}.get(harness, harness)
-        item.write(it, pane)
+        item.rewrite(it)
 
 
 def run() -> int:
@@ -111,12 +120,18 @@ def run() -> int:
             if pane is None and time.time() - unknown.setdefault(key, time.time()) < 10:
                 last_list = 0.0  # maybe a new pane: refresh the listing, retry next round
                 continue
-            seen[key] = newest
             unknown.pop(key, None)
-            if pane:
-                enrich(pane, *agents.get(pane, (None, None)))
-            if pane and not viewers.lookup(pane):
+            if pane is None:
+                seen[key] = newest  # the pane is gone; nothing to open
+                continue
+            enrich(pane, *agents.get(pane, (None, None)))
+            bound = viewers.lookup(pane)
+            if bound and "pending_until" in bound:
+                continue  # `show` is opening one right now; check again next round
+            if not bound:
                 viewers.mark_pending(pane)
                 if herdr.open_viewer(pane) is None:
                     viewers.forget(pane)
+                    continue  # retry next round
+            seen[key] = newest
         time.sleep(POLL)

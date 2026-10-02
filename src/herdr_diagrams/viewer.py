@@ -434,9 +434,12 @@ class Viewer:
             settings = render.load_settings()
             files, problems, target = [], [], None
             for it in items:
-                target = render.export_dir(it)
-                written, failed = render.export(it, target, registry=self.registry,
-                                                theme=settings["export_theme"])
+                try:
+                    target = render.export_dir(it)
+                    written, failed = render.export(it, target, registry=self.registry,
+                                                    theme=settings["export_theme"])
+                except Exception as exc:  # report, never kill the export thread silently
+                    written, failed = [], [f"export failed: {exc}"]
                 files += written
                 problems += failed
             text = f"exported {len(files)} files to {target}"

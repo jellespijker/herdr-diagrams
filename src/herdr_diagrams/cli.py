@@ -184,11 +184,11 @@ def cmd_export(args) -> int:
     if args.all:
         chosen = items
     else:
-        try:
-            chosen = [items[-args.index if args.index else -1]]
-        except IndexError:
-            print(f"herdr-diagram export: there are only {len(items)} diagrams", file=sys.stderr)
+        index = 1 if args.index is None else args.index
+        if not 1 <= index <= len(items):
+            print(f"herdr-diagram export: -n must be 1..{len(items)} (1 = newest)", file=sys.stderr)
             return EXIT_USAGE
+        chosen = [items[-index]]
     kinds = tuple(k for k in ("png", "svg", "src") if getattr(args, k)) or ("png", "svg", "src")
     theme = args.theme or render.load_settings()["export_theme"]
     status = 0
@@ -477,16 +477,22 @@ def gc(cutoff: float) -> int:
     for root in roots:
         if not root.is_dir():
             continue
-        for file in root.rglob("*"):
-            if file.is_file() and file.stat().st_mtime < cutoff:
-                file.unlink()
-                removed += 1
+        for file in list(root.rglob("*")):
+            try:  # other processes rename and remove files concurrently
+                if file.is_file() and file.stat().st_mtime < cutoff:
+                    file.unlink()
+                    removed += 1
+            except OSError:
+                continue
     for root in roots:
         if not root.is_dir():
             continue
         for directory in sorted((d for d in root.rglob("*") if d.is_dir()), reverse=True):
-            if not any(directory.iterdir()):
-                directory.rmdir()
+            try:
+                if not any(directory.iterdir()):
+                    directory.rmdir()
+            except OSError:
+                continue
     return removed
 
 

@@ -160,7 +160,8 @@ def allow_rules(state_dir: Path) -> list[str]:
         path = "~/" + str(state_dir.relative_to(Path.home()))
     except ValueError:
         path = "/" + str(state_dir)  # Claude Code: `//abs/path` is an absolute path
-    return ["Bash(herdr-diagram:*)", f"Edit({path}/**)"]
+    # Only show and list: render and export write files where the caller says.
+    return ["Bash(herdr-diagram show:*)", "Bash(herdr-diagram list:*)", f"Edit({path}/**)"]
 
 
 def allow(settings: Path, state_dir: Path, uninstall: bool = False) -> str:

@@ -344,6 +344,19 @@ def render_source(fmt: str, data: bytes, *, registry: dict | None = None,
         return Result(error=f"render failed: {exc}")
 
 
+_MAGIC = {".png": (b"\x89PNG\r\n\x1a\n",), ".jpg": (b"\xff\xd8\xff",), ".jpeg": (b"\xff\xd8\xff",),
+          ".gif": (b"GIF87a", b"GIF89a"), ".webp": (b"RIFF",), ".bmp": (b"BM",)}
+
+
+def is_image(path: str, data: bytes) -> bool:
+    """An image extension and matching content; image Items may name any path (untrusted)."""
+    suffix = Path(path).suffix.lower()
+    if suffix == ".svg":
+        head = data[:1024].lstrip().lower()
+        return head.startswith((b"<svg", b"<?xml")) and b"<svg" in data[:4096].lower()
+    return any(data.startswith(magic) for magic in _MAGIC.get(suffix, ()))
+
+
 def render_item(it: item_mod.Item, *, registry: dict | None = None,
                 theme: str | None = None, svg: bool = False) -> Result:
     if it.format == "image":
@@ -353,6 +366,8 @@ def render_item(it: item_mod.Item, *, registry: dict | None = None,
             data = Path(it.path).read_bytes()
         except OSError as exc:
             return Result(error=f"cannot read image: {exc}")
+        if not is_image(it.path, data):
+            return Result(error=f"not an image file: {Path(it.path).name}")
         key = cache_key("image", None, "", data)
         if hit := _cached(key):
             return Result(artifacts=hit, cached=True)
@@ -395,33 +410,58 @@ def slug(text: str) -> str:
     return text[:60] or "diagram"
 
 
-def _unique(path: Path, content: bytes) -> Path:
-    """`path`, or `path` with -2, -3 ... when a different file already has that name."""
+class ExportError(OSError):
+    pass
+
+
+def _safe_dir(directory: Path) -> Path:
+    """Create the export directory; refuse a symlinked target directory.
+
+    Item fields come from agents. A planted `diagrams -> ~/.config/...` link must not
+    redirect files that the user exports from outside the agent's sandbox.
+    """
+    directory = Path(os.path.abspath(directory))
+    for part in [directory, *directory.parents][:2]:  # the directory and its parent
+        if part.is_symlink():
+            raise ExportError(f"refusing to export through a symlink: {part}")
+    directory.mkdir(parents=True, exist_ok=True)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ExportError(f"not a directory: {directory}")
+    return directory
+
+
+def _write_new(path: Path, content: bytes) -> Path | None:
+    """Write `path`, or `path-2`, `-3` ...; never through a symlink. None: identical file exists."""
     candidate, n = path, 1
-    while candidate.exists() and candidate.read_bytes() != content:
-        n += 1
-        candidate = path.with_name(f"{path.stem}-{n}{path.suffix}")
-    return candidate
+    while True:
+        try:
+            fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                         0o644)
+        except FileExistsError:
+            if not candidate.is_symlink() and candidate.is_file() and candidate.read_bytes() == content:
+                return None
+            n += 1
+            candidate = path.with_name(f"{path.stem}-{n}{path.suffix}")
+            continue
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+        return candidate
 
 
 def export(it: item_mod.Item, directory: Path, *, registry: dict | None = None,
            theme: str = "light",
            kinds: tuple[str, ...] = ("png", "svg", "src")) -> tuple[list[Path], list[str]]:
-    """Write an Item as PNG, SVG and source files. Returns (written files, problems)."""
+    """Write an Item as PNG, SVG and source files. Returns (written files, problems).
+
+    Image Items export as PNG only: their path is agent-controlled, so the original file
+    is never copied.
+    """
     registry = registry if registry is not None else load_registry()
-    directory.mkdir(parents=True, exist_ok=True)
     stem = slug(it.display_title)
-    outputs: list[tuple[Path, bytes]] = []
+    outputs: list[tuple[str, bytes]] = []
     problems = []
-    if "src" in kinds:
-        if it.format == "image" and it.path:
-            data = Path(it.path).read_bytes() if Path(it.path).is_file() else b""
-            if data:
-                outputs.append((directory / f"{stem}{Path(it.path).suffix.lower()}", data))
-        elif it.source is not None:
-            outputs.append((directory / f"{stem}.{SOURCE_EXT.get(it.format, 'txt')}", it.source.encode()))
     for kind in ("png", "svg"):
-        if kind not in kinds or it.format == "image":
+        if kind not in kinds or (it.format == "image" and kind == "svg"):
             continue
         result = render_item(it, registry=registry, theme=theme, svg=kind == "svg")
         if not result.ok:
@@ -429,22 +469,25 @@ def export(it: item_mod.Item, directory: Path, *, registry: dict | None = None,
             continue
         many = len(result.artifacts) > 1
         for index, artifact in enumerate(result.artifacts):
-            name = f"{stem}-{index + 1}.{kind}" if many else f"{stem}.{kind}"
-            outputs.append((directory / name, artifact.read_bytes()))
-    if it.format == "image" and "png" in kinds:
-        result = render_item(it, registry=registry)
-        if result.ok:
-            outputs.append((directory / f"{stem}.png", result.artifacts[0].read_bytes()))
+            outputs.append((f"{stem}-{index + 1}.{kind}" if many else f"{stem}.{kind}",
+                            artifact.read_bytes()))
+    if "src" in kinds and it.format != "image" and it.source is not None:
+        outputs.append((f"{stem}.{SOURCE_EXT.get(it.format, 'txt')}", it.source.encode()))
     written = []
-    for path, content in outputs:
-        target = _unique(path, content)
-        target.write_bytes(content)
-        written.append(target)
+    try:
+        target_dir = _safe_dir(directory)
+        for name, content in outputs:
+            if (path := _write_new(target_dir / name, content)) is not None:
+                written.append(path)
+    except OSError as exc:
+        problems.append(f"export failed: {exc}")
     return written, problems
 
 
 def export_dir(it: item_mod.Item, override: str | None = None) -> Path:
     """Where `export` writes: --dir, else config `export_dir` with {cwd} and {home} filled in."""
     template = override or load_settings()["export_dir"]
-    cwd = it.origin.get("cwd") or os.getcwd()
+    cwd = it.origin.get("cwd") or ""
+    if not (os.path.isabs(cwd) and os.path.isdir(cwd)):
+        cwd = os.getcwd()
     return Path(template.replace("{cwd}", cwd).replace("{home}", str(Path.home()))).expanduser()
