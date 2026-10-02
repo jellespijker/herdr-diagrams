@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 (2026-10-02)
+
+- Mouse: wheel zooms around the pointer, drag pans, Shift+wheel or a horizontal wheel pans
+  sideways, double-click fits, middle click opens the image externally, clicks select in the
+  list.
+- Zoom and pan move the already uploaded image instead of re-sending it: smooth with large
+  diagrams. Keyboard zoom (`+`/`-`) now zooms around the centre of the view.
+
 ## 0.1.2 (2026-10-02)
 
 - Show the OS and terminal verdict as a herdr notification after install and at herdr

@@ -200,12 +200,21 @@ Nothing was queued. Fix the diagram and run show again.
 | `h` / `l` | Previous / next view of a Structurizr workspace |
 | `+` / `-` / `0` | Zoom in / out / fit |
 | arrows | Pan when zoomed |
+| mouse wheel | Zoom in / out around the pointer |
+| drag (left button) | Pan |
+| Shift+wheel, horizontal wheel | Pan sideways |
+| double-click | Fit |
+| middle click | Open in your image viewer |
+| click in the list (`i`) | Show that diagram |
 | `s` | Toggle the diagram source |
 | `o` | Open the image in your default viewer |
 | `y` | Copy the image path |
 | `r` | Follow the newest diagram again |
 | `t` | Resume scroll sync after manual navigation, or turn it off and on |
 | `q` | Close the viewer |
+
+The viewer asks the terminal for mouse reports (like vim or htop do); herdr passes them to the
+pane. Zoom and pan only move the image, so they stay smooth even for large diagrams.
 
 New diagrams take over the viewer until you move away from the newest; after that the
 header counts them (`+2 new (r)`) instead.

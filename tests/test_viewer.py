@@ -129,3 +129,43 @@ def test_viewer_explains_when_the_terminal_cannot_show_images():
         assert b"a=p," not in out  # nothing is drawn
     finally:
         stop(pid, fd)
+
+
+def wheel(fd, up, column=40, row=12):
+    os.write(fd, f"\x1b[<{64 if up else 65};{column};{row}M".encode())
+
+
+def test_viewer_mouse_wheel_zoom_and_drag_pan_without_resending():
+    pid, fd = spawn_viewer("w9:p6")
+    try:
+        read_until(fd, b"Waiting for diagrams")
+        big = FIXTURES / "wide.png"
+        item.write(item.new("image", path=str(big), title="wide", pane="w9:p6"))
+        read_until(fd, b"a=p,")
+        wheel(fd, up=True)
+        out = read_until(fd, b",x=")                     # zoomed: a crop rectangle
+        assert b"a=t," not in out                        # placement only, no re-send
+        assert b"1.2x" in out                             # header shows the zoom
+        os.write(fd, b"\x1b[<0;40;12M\x1b[<32;30;12M\x1b[<0;30;12m")  # drag 10 cells left
+        out = read_until(fd, b",x=")
+        assert b"a=t," not in out
+        os.write(fd, b"\x1b[<0;40;12M\x1b[<0;40;12m\x1b[<0;40;12M\x1b[<0;40;12m")  # double click
+        out = read_until(fd, b"C=1,q=2\x1b\\")
+        assert b",x=" not in out.split(b"a=p,")[-1]      # back to fit: no crop
+    finally:
+        stop(pid, fd)
+
+
+def test_viewer_list_click_selects():
+    pid, fd = spawn_viewer("w9:p7")
+    try:
+        read_until(fd, b"Waiting for diagrams")
+        for name in ("first", "second"):
+            item.write(item.new("image", path=str(FIXTURES / "pixel.png"), title=name, pane="w9:p7"))
+        read_until(fd, b"2/2")
+        os.write(fd, b"i")
+        read_until(fd, b"Enter show")
+        os.write(fd, b"\x1b[<0;10;5M\x1b[<0;10;5m")  # second list row (row 5) = older diagram
+        read_until(fd, b"1/2")
+    finally:
+        stop(pid, fd)

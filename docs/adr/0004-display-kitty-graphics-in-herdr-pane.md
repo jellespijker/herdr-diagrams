@@ -50,3 +50,11 @@ What does work, on the target setup (Ghostty 1.3.1, herdr 0.9.3):
 - Re-placing an already uploaded image after deleting its placement did not show reliably
   through herdr. The viewer therefore deletes and re-transmits the image on every draw.
   Artifacts are tens to hundreds of kilobytes, so the cost is small.
+
+## Amendment (2026-10-02, 0.1.3)
+
+Re-placing an uploaded image with a new size or source rectangle works through herdr, as
+long as the screen is not cleared in between (tested: same id, `p=1`, new `c`/`r` and
+`x,y,w,h`; also delete-placement then place). Only a full redraw (screen clear) re-transmits.
+Zoom and pan, from keys or the mouse, now send a placement only, which keeps mouse wheel zoom
+and drag panning responsive.

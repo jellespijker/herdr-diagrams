@@ -332,7 +332,8 @@ Windows commands that cannot work exit with a clear message.
 |---|---|
 | `j` / `k` | Next / previous Item |
 | `h` / `l` | Previous / next view of a multi-artifact Item |
-| `+` / `-` / `0` | Zoom in / out / fit |
+| `+` / `-` / `0` | Zoom in / out / fit (around the centre of the view) |
+| mouse wheel / Shift+wheel / drag / double-click / middle click | Zoom around the pointer / pan sideways / pan / fit / open externally (SGR mouse reporting, modes 1000, 1002, 1006) |
 | arrows | Pan when zoomed |
 | `s` | Toggle source text |
 | `o` | Open the artifact with `xdg-open` (macOS: `open`) |
