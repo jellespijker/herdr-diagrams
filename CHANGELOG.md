@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 (2026-10-02)
+
+- Detect the outer terminal (from the herdr client process) and the OS. Report them at
+  install time, in `doctor`, in the viewer pane and to the agent. The viewer explains when
+  the terminal cannot show images and offers open, source and export instead.
+- `images = "auto" | "on" | "off"` setting to override the detection.
+- Clear messages on Windows instead of obscure failures.
+
 ## 0.1.0 (2026-10-02)
 
 First release.

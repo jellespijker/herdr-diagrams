@@ -14,6 +14,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("HERDR_DIAGRAMS_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("HERDR_PLUGIN_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("HERDR_DIAGRAMS_NO_OPEN", "1")
+    monkeypatch.setenv("HERDR_DIAGRAMS_IMAGES", "on")  # tests must not depend on the terminal
     monkeypatch.setenv("HERDR_BIN_PATH", "/nonexistent/herdr")
     for key in ("HERDR_PANE_ID", "HERDR_DIAGRAMS_THEME", "HERDR_DIAGRAMS_BIND", "HERDR_SESSION",
                 "HERDR_SOCKET_PATH", "CLAUDE_CONFIG_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",

@@ -20,7 +20,7 @@ import time
 import tty
 from pathlib import Path
 
-from . import daemon, display, herdr, item, render, sync, viewers
+from . import daemon, display, herdr, item, render, sync, terminal, viewers
 
 POLL_SPOOL = 0.4
 POLL_PANE = 5.0
@@ -70,6 +70,10 @@ class Viewer:
         self.list_cursor = 0
         self.last_visible = None
         self.sync_target: int | None = None
+        try:
+            self.no_images = terminal.image_problem()  # None: the terminal can show images
+        except Exception:  # detection must never stop the viewer
+            self.no_images = None
 
     # --- terminal -----------------------------------------------------------
 
@@ -221,7 +225,8 @@ class Viewer:
                 "",
                 "herdr-diagram show diagram.mmd",
                 "echo 'flowchart LR; A-->B' | herdr-diagram show -",
-            ], cols, rows))
+            ] + (["", f"Note: {self.no_images}", "Diagrams will open with o instead of showing here."]
+                 if self.no_images else []), cols, rows))
         elif self.show_list:
             out.append(self.list_view(cols, rows))
         elif self.show_source:
@@ -281,6 +286,12 @@ class Viewer:
             return self.centered([f"rendering {it.format}…"], cols, rows)
         if not result.ok:
             return self.error_view(result, cols, rows)
+        if self.no_images:
+            lines = textwrap.wrap(f"No image here: {self.no_images}", cols - 6) + [
+                "", "o  open the diagram in your image viewer", "s  show its source",
+                "e  export PNG, SVG and source", "",
+                "Images need a terminal with the Kitty graphics protocol:", "Ghostty, kitty or WezTerm."]
+            return self.centered(lines, cols, rows, "33")
         self.view = min(self.view, len(result.artifacts) - 1)
         artifact = result.artifacts[self.view]
         try:

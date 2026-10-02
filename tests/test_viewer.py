@@ -29,9 +29,10 @@ def read_until(fd, needle: bytes, timeout: float = 30.0) -> bytes:
     raise AssertionError(f"{needle!r} not seen; got tail {buf[-400:]!r}")
 
 
-def spawn_viewer(bind: str):
+def spawn_viewer(bind: str, images: str = "on"):
     pid, fd = pty.fork()
     if pid == 0:
+        os.environ["HERDR_DIAGRAMS_IMAGES"] = images
         os.execv(str(CLI), [str(CLI), "view", "--bind", bind])
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 1000, 630))
     return pid, fd
@@ -115,5 +116,16 @@ def test_viewer_list_overlay_and_export(tmp_path):
         os.write(fd, b"e")
         read_until(fd, b"exported")
         assert (tmp_path / "diagrams" / "alpha.png").is_file()
+    finally:
+        stop(pid, fd)
+
+
+def test_viewer_explains_when_the_terminal_cannot_show_images():
+    pid, fd = spawn_viewer("w9:p5", images="off")
+    try:
+        read_until(fd, b"Diagrams will open with o")
+        item.write(item.new("image", path=str(FIXTURES / "pixel.png"), title="pic", pane="w9:p5"))
+        out = read_until(fd, b"open the diagram in your image viewer")
+        assert b"a=p," not in out  # nothing is drawn
     finally:
         stop(pid, fd)

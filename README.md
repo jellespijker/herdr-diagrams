@@ -80,7 +80,9 @@ project. `export` writes into the project only when you ask for it.
 ## Terminals
 
 The viewer draws with the Kitty graphics protocol, and herdr forwards only that protocol (no
-Sixel, no iTerm2 inline images). The outer terminal decides:
+Sixel, no iTerm2 inline images). The outer terminal decides, and the plugin checks it for you:
+it reads the environment of the herdr client running in your terminal, and reports the
+result at install time, in `herdr-diagram doctor`, in the viewer pane and to the agent.
 
 | Terminal | Status |
 |---|---|
@@ -93,7 +95,12 @@ Sixel, no iTerm2 inline images). The outer terminal decides:
 - Run herdr directly in the terminal. A tmux or zellij layer between them blocks the graphics.
 - Over SSH it works when the terminal on your side supports the protocol: the graphics travel
   in the terminal stream. With `herdr --remote`, enable `kitty_graphics` on the client machine.
-- `herdr-diagram doctor` shows whether herdr's `kitty_graphics` is on.
+- `herdr-diagram doctor` shows the detected terminal, the OS, and whether herdr's
+  `kitty_graphics` is on.
+- When the terminal cannot show images, the viewer says so and still lists the diagrams;
+  `o` opens one in your image viewer, `s` shows the source, `e` exports it.
+- Detection wrong? Set `images = "on"` (or `"off"`) in the plugin config, or
+  `HERDR_DIAGRAMS_IMAGES=on`.
 
 ## Platforms
 
@@ -101,7 +108,7 @@ Sixel, no iTerm2 inline images). The outer terminal decides:
 |---|---|
 | Linux | Tested: Ghostty 1.3 + herdr 0.9.3 on Arch, all formats, Claude Code, opencode and Copilot CLI skill discovery |
 | macOS | Supported, not yet tested on a Mac. Uses only POSIX APIs available there; uses `open`, `pbcopy`, `sips` and Chrome from `/Applications` where Linux uses `xdg-open`, `wl-copy`, ImageMagick and Chromium. If `python3` is Apple's 3.9, the command switches to a newer Python on `PATH` or from Homebrew. CI runs the tests on macOS. |
-| Windows | Not supported yet. See [ADR-0010](docs/adr/0010-platform-support.md) for what is missing. |
+| Windows | Not supported yet. See [ADR-0010](docs/adr/0010-platform-support.md) for what is missing. The install step and the commands say so instead of failing obscurely. |
 
 ## Requirements
 
@@ -262,6 +269,7 @@ Files live in the plugin config dir (`herdr plugin config-dir herdr-diagrams`):
   - `export_dir = "{cwd}/diagrams"` (default); `{cwd}` is the agent's working directory,
     `{home}` your home directory.
   - `export_theme = "light"` (default) or `"dark"`.
+  - `images = "auto"` (default), `"on"` or `"off"`: override the terminal detection.
 - `renderers.toml`: override a bundled renderer or add one. Example, a self-hosted
   [Kroki](https://kroki.io) for BPMN:
 

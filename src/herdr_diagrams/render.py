@@ -58,7 +58,7 @@ def load_settings() -> dict:
     """User settings from <config dir>/config.toml. Keys: theme."""
     path = config_dir() / "config.toml"
     settings = {"theme": "dark", "scroll_sync": True, "export_dir": "{cwd}/diagrams",
-                "export_theme": "light"}
+                "export_theme": "light", "images": "auto"}
     if path.is_file():
         try:
             settings.update(tomllib.loads(path.read_text()))

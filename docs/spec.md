@@ -313,6 +313,18 @@ Manual navigation (`j`, `k`, `g`, the list) pauses sync until `t` or `r`. `t` al
 in `config.toml` turns it off. The same thread checks every 5 s whether the source pane
 still exists; only an explicit `pane_not_found` from herdr stops the viewer.
 
+### 8.2a Terminal and OS checks
+
+`terminal.py` identifies the outer terminal from the environment of the herdr client process
+of the current herdr session (Linux `/proc`, macOS `ps -E`), falling back to the process's own
+environment. It maps the terminal to `yes` (Ghostty, kitty, WezTerm), `partial` (Konsole,
+iTerm2 3.6+, Warp), `no` (Alacritty, foot, VTE terminals, xterm, Windows Terminal,
+Terminal.app, VS Code, JetBrains) or `unknown`, and notes tmux, zellij, screen and SSH. Results
+appear in `doctor`, `doctor --brief` (run at the end of the install build), the viewer (a
+message instead of an image when images cannot work) and `show` output ("Note for the user").
+`images = "auto" | "on" | "off"` overrides the detection. The OS check accepts Linux and macOS;
+Windows commands that cannot work exit with a clear message.
+
 ### 8.3 Keys
 
 | Key | Action |

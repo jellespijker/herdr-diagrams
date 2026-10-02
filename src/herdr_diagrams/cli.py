@@ -12,7 +12,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import daemon, detect, herdr, item, render, skill, viewers
+from . import daemon, detect, herdr, item, render, skill, terminal, viewers
 
 EXIT_RUNTIME, EXIT_USAGE, EXIT_DETECT, EXIT_SANDBOX = 1, 2, 3, 4
 
@@ -126,6 +126,11 @@ def cmd_show(args) -> int:
     print(f"{fmt}: {it.display_title} — {where}")
     if pane and it.origin.get("harness", "unknown") != "unknown":
         print(f"Write this line in your answer where the diagram belongs: [diagram: {it.display_title}]")
+    if pane:
+        info = terminal.detect()
+        if not info.ok and info.support != "unknown" or info.multiplexer:
+            print(f"Note for the user: {info.summary()}. The viewer lists the diagram; "
+                  "press o there to open it in an image viewer.")
     if args.verbose:
         print(written)
     return 0
@@ -235,30 +240,28 @@ def cmd_open(args) -> int:
     return 0 if state in ("opened", "running") else EXIT_RUNTIME
 
 
-def _kitty_graphics_setting() -> str:
-    config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "herdr" / "config.toml"
-    try:
-        data = tomllib.loads(config.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
-        return "default (on)"
-    for section in ("terminal", "experimental"):
-        value = (data.get(section) or {}).get("kitty_graphics")
-        if value is not None:
-            return f"{'on' if value else 'OFF'} ([{section}] in {config})"
-    return "default (on)"
-
-
 def cmd_doctor(args) -> int:
     ok = True
 
-    def line(label: str, value: str, good: bool = True) -> None:
+    def line(label: str, value: str, good: bool | str = True) -> None:
+        """good: True (✓), False (✗) or "warn" (!)."""
         nonlocal ok
-        ok = ok and good
-        print(f"  {'✓' if good else '✗'} {label:<22} {value}")
+        ok = ok and good is True
+        mark = "!" if good == "warn" else ("✓" if good else "✗")
+        print(f"  {mark} {label:<22} {value}")
 
     print(f"herdr-diagrams {version()}  ({render.ROOT})")
+    if args.brief:
+        return doctor_brief()
     print("system")
-    line("platform", f"{sys.platform}, Python {sys.version.split()[0]}", sys.platform != "win32")
+    os_name, os_support, os_note = terminal.platform()
+    line("operating system", f"{os_name}: {os_note}", {"yes": True, "no": False}.get(os_support, "warn"))
+    line("python", sys.version.split()[0])
+    info = terminal.detect()
+    line("terminal", f"{info.summary()} [from the {info.source}]",
+         "warn" if info.support in ("partial", "unknown") and not info.multiplexer else info.ok)
+    if info.ssh:
+        line("ssh", "herdr runs over SSH; images need the Kitty protocol on your local terminal", "warn")
     local_bin = str(Path.home() / ".local" / "bin")
     on_path = local_bin in os.environ.get("PATH", "").split(os.pathsep)
     line("~/.local/bin on PATH", "yes" if on_path else f"no: add {local_bin} to PATH for agents", on_path)
@@ -272,7 +275,7 @@ def cmd_doctor(args) -> int:
     inside = os.environ.get("HERDR_ENV") == "1" or bool(os.environ.get("HERDR_PANE_ID"))
     line("inside herdr", (f"yes, pane {os.environ['HERDR_PANE_ID']}" if os.environ.get("HERDR_PANE_ID")
                           else "yes") if inside else "no (run it in a herdr pane)", inside)
-    setting = _kitty_graphics_setting()
+    setting = terminal.kitty_graphics_setting()
     line("kitty_graphics", setting, "OFF" not in setting)
     alive = daemon.running()
     line("viewer daemon", "running" if alive else "not running (starts with herdr or the open action)",
@@ -296,8 +299,33 @@ def cmd_doctor(args) -> int:
     for name, dest, _readers, state in skill.status():
         line(name, f"{state}: {dest}", state == "installed")
     if not ok:
-        print("\nSome checks failed. Missing renderers only disable their format.")
+        print("\nSome checks failed or need attention (!). Missing renderers only disable their format.")
+        if not info.ok:
+            print("Without image support the viewer still lists diagrams; press o to open one in "
+                  "your image viewer, s for its source.")
     wait_for_key(args)
+    return 0
+
+
+def doctor_brief() -> int:
+    """Three-line summary, printed at the end of `herdr plugin install`."""
+    os_name, os_support, os_note = terminal.platform()
+    info = terminal.detect()
+    missing = [k for k, (ok, _) in render.availability(render.load_registry()).items() if not ok]
+    marks = {"yes": "✓", "no": "✗"}
+    print(f"  {marks.get(os_support, '!')} {os_name}: {os_note}")
+    if info.ok and info.support == "yes":
+        term_mark = "✓"
+    elif info.ok or info.support == "unknown":
+        term_mark = "!"
+    else:
+        term_mark = "✗"
+    print(f"  {term_mark} terminal: {info.summary()}")
+    renderers = (f"missing {', '.join(missing)} (install them for those formats)" if missing
+                 else "all available")
+    print(f"  {'!' if missing else '✓'} renderers: {renderers}")
+    print("  Next: run the action 'Diagrams: install skill and CLI for all agents'; "
+          "`herdr-diagram doctor` for details.")
     return 0
 
 
@@ -556,8 +584,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bind", help="source pane to follow")
     p.set_defaults(func=cmd_view)
 
-    p = sub.add_parser("doctor", help="check herdr, graphics, renderers and skills")
+    p = sub.add_parser("doctor", help="check OS, terminal, herdr, renderers and skills")
     p.add_argument("--wait", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--brief", action="store_true", help="three-line summary")
     p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("popup", help=argparse.SUPPRESS)
@@ -600,8 +629,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+UNSUPPORTED_ON_WINDOWS = {"view", "daemon", "install-skill", "hook", "event", "open", "popup"}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if sys.platform == "win32" and args.command in UNSUPPORTED_ON_WINDOWS:
+        print("herdr-diagrams supports Linux and macOS. Windows is not supported yet "
+              "(docs/adr/0010-platform-support.md); `render` and `export` may work.", file=sys.stderr)
+        return EXIT_USAGE
     try:
         return args.func(args)
     except KeyboardInterrupt:

@@ -92,6 +92,9 @@ paths.
   sandboxes") lets `show` work directly.
 - "queued; the viewer ... shows it in a moment": normal in a sandbox. The plugin opens the
   viewer for you.
+- "Note for the user: <terminal> cannot show images": tell the user once, in one sentence.
+  The diagram is still listed in the viewer and opens with `o` in their image viewer;
+  Ghostty, kitty and WezTerm show it inline.
 
 - `command not found: herdr-diagram`: the plugin is not linked yet. Tell the user to run
   the herdr action "Diagrams: install skill and CLI for all agents".

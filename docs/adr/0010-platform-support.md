@@ -45,3 +45,15 @@ Differences are in tools and defaults:
 - Windows support needs: a Windows input loop in the viewer, copies instead of symlinks in
   `install-skill`, PowerShell `[[build]]` and action entries with `python` in the argv, and a
   check that herdr on Windows forwards Kitty graphics.
+
+## Amendment (2026-10-02, 0.1.1)
+
+The plugin now checks OS and terminal and tells the user, instead of leaving an empty pane:
+
+- The install build refuses unsupported operating systems and ends with a three-line summary
+  (`doctor --brief`): OS, terminal, missing renderers.
+- The terminal is identified from the herdr client process, which runs directly in the
+  user's terminal; herdr itself does not report the outer terminal or its graphics support.
+- The viewer shows an explanation and the `o`/`s`/`e` alternatives when the terminal cannot
+  show images; `show` passes the same note to the agent. `images = "on"` overrides a wrong
+  detection.
