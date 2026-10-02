@@ -38,7 +38,7 @@ def test_show_reports_render_errors_and_queues_nothing():
 def test_show_exit_codes():
     assert run("show", "-", stdin="no diagram here").returncode == 3
     assert run("show", "/nonexistent.mmd").returncode == 1
-    assert run("show", "-f", "visio", "-", stdin="x").returncode == 3
+    assert run("show", "-f", "visio", "-", stdin="x").returncode == 2
 
 
 def test_show_image_keeps_path():
@@ -98,3 +98,33 @@ def test_doctor_runs():
     proc = run("doctor")
     assert proc.returncode == 0
     assert "renderers" in proc.stdout and "mermaid" in proc.stdout
+
+
+def test_exit_codes_for_usage_errors():
+    assert run("gc", "--older-than", "abc").returncode == 2
+    assert run("render", str(FIXTURES / "sample.dot"), "-o", "/tmp/x.png", "-f", "visio").returncode == 2
+
+
+def test_show_output_names_the_chat_marker():
+    proc = run("show", str(FIXTURES / "pixel.png"), "-t", "Tiny", env={"HERDR_PANE_ID": "w1:p1"})
+    assert "[diagram:" not in proc.stdout  # a person in a shell needs no marker hint
+    proc = run("show", str(FIXTURES / "pixel.png"), "-t", "Tiny",
+               env={"HERDR_PANE_ID": "w1:p1", "CLAUDECODE": "1"})
+    assert "[diagram: Tiny]" in proc.stdout
+
+
+def test_gc_removes_old_files_and_empty_dirs(tmp_path):
+    path = item.write(item.new("d2", source="a -> b", pane="w1:p1"))
+    os.utime(path, (0, 0))
+    assert run("gc", "--older-than", "1d").returncode == 0
+    assert not path.parent.exists()
+
+
+def test_pending_viewer_claim(monkeypatch):
+    from herdr_diagrams import viewers
+
+    viewers.mark_pending("w1:p1")
+    assert viewers.lookup("w1:p1")["source_pane"] == "w1:p1"
+    monkeypatch.setattr(viewers, "PENDING_SECONDS", -1)
+    viewers.mark_pending("w1:p1")
+    assert viewers.lookup("w1:p1") is None

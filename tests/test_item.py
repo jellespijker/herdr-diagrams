@@ -19,7 +19,7 @@ def test_pane_key():
 def test_write_read_roundtrip():
     it = item.new("mermaid", source="flowchart LR\n A-->B", title="t", pane="w1:p1", harness="claude")
     path = item.write(it)
-    assert path.parent.name == "w1_p1"
+    assert path.parent.name == "w1_p1" and path.parent.parent.name == "default"
     assert not list(path.parent.glob("*.tmp"))
     back = item.read(path)
     assert back.to_json() == it.to_json()
@@ -71,3 +71,30 @@ def test_display_title(source, title):
 def test_detect_harness_from_env():
     assert item.detect_harness({"CLAUDECODE": "1"}) == "claude"
     assert item.detect_harness({}) == "unknown"
+
+
+def test_herdr_session_name():
+    assert item.herdr_session({}) == "default"
+    assert item.herdr_session({"HERDR_SESSION": "work"}) == "work"
+    socket = "/h/.config/herdr/sessions/hd-demo/herdr.sock"
+    assert item.herdr_session({"HERDR_SOCKET_PATH": socket}) == "hd-demo"
+    assert item.herdr_session({"HERDR_SOCKET_PATH": "/h/.config/herdr/herdr.sock"}) == "default"
+    assert item.herdr_session({"HERDR_SESSION": "../x"}) == ".._x"
+
+
+def test_same_pane_id_in_two_sessions_does_not_collide(monkeypatch):
+    monkeypatch.setenv("HERDR_SESSION", "work")
+    item.write(item.new("d2", source="a -> b", pane="w1:p1"))
+    monkeypatch.setenv("HERDR_SESSION", "cloud")
+    assert item.list_items("w1:p1") == []
+    item.write(item.new("d2", source="c -> d", pane="w1:p1"))
+    assert [it.source for it in item.list_items("w1:p1")] == ["c -> d"]
+    assert item.list_items("w1:p1")[0].origin["herdr_session"] == "cloud"
+
+
+def test_clean_text_strips_terminal_controls():
+    nasty = "Title\x1b]52;c;ZXZpbA==\x07 and \x1b_Ga=d\x1b\\ \x9b2J ok\tx\ny"
+    cleaned = item.clean_text(nasty)
+    assert "\x1b" not in cleaned and "\x07" not in cleaned and "\x9b" not in cleaned
+    assert cleaned.endswith("ok\tx\ny")
+    assert "\x1b" not in item.Item(format="d2", source="x", title=nasty).display_title

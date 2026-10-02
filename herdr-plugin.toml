@@ -26,19 +26,19 @@ command = ["bin/herdr-diagram", "open"]
 id = "install-skill"
 title = "Diagrams: install skill and CLI for all agents"
 contexts = ["workspace", "global"]
-command = ["bin/herdr-diagram", "install-skill"]
+command = ["bin/herdr-diagram", "popup", "install-skill"]
 
 [[actions]]
 id = "uninstall-skill"
 title = "Diagrams: remove skill and CLI links"
 contexts = ["workspace", "global"]
-command = ["bin/herdr-diagram", "install-skill", "--uninstall"]
+command = ["bin/herdr-diagram", "popup", "uninstall-skill"]
 
 [[actions]]
 id = "doctor"
 title = "Diagrams: check setup"
 contexts = ["workspace", "global"]
-command = ["bin/herdr-diagram", "doctor"]
+command = ["bin/herdr-diagram", "popup", "doctor"]
 
 [[actions]]
 id = "gc"
@@ -51,6 +51,30 @@ id = "viewer"
 title = "Diagrams"
 placement = "split"
 command = ["bin/herdr-diagram", "view"]
+
+[[panes]]
+id = "doctor"
+title = "Diagrams: doctor"
+placement = "popup"
+width = 100
+height = "80%"
+command = ["bin/herdr-diagram", "doctor", "--wait"]
+
+[[panes]]
+id = "install-skill"
+title = "Diagrams: install skill"
+placement = "popup"
+width = 120
+height = 16
+command = ["bin/herdr-diagram", "install-skill", "--wait"]
+
+[[panes]]
+id = "uninstall-skill"
+title = "Diagrams: remove skill"
+placement = "popup"
+width = 120
+height = 16
+command = ["bin/herdr-diagram", "install-skill", "--uninstall", "--wait"]
 
 [[events]]
 on = "pane.closed"

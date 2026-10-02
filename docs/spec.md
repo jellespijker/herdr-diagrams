@@ -84,9 +84,14 @@ Defined in [ADR-0002](adr/0002-item-contract-v1.md). Validated against `schema/i
 
 ```
 ${HERDR_DIAGRAMS_HOME:-${XDG_STATE_HOME:-~/.local/state}/herdr-diagrams}/
-  spool/<pane-key>/<created_ns>-<rand>.json
-  cache/<sha256>.<ext>
+  spool/<herdr-session>/<pane-key>/<created_ns>-<rand>.json
+  viewers/<herdr-session>/<pane-key>.json
+  cache/<sha256>.png
 ```
+
+- `<herdr-session>` is `HERDR_SESSION`, or the name in `HERDR_SOCKET_PATH`
+  (`.../sessions/<name>/herdr.sock`), or `default`. Pane IDs are only unique within one
+  herdr session, so every per-pane path is scoped by it.
 
 - `<pane-key>` is `HERDR_PANE_ID` with `:` replaced by `_` (`w1:p3` → `w1_p3`). Items written
   outside herdr go to `spool/_nopane/`.
@@ -126,6 +131,7 @@ ${HERDR_DIAGRAMS_HOME:-${XDG_STATE_HOME:-~/.local/state}/herdr-diagrams}/
 | `title` | string | no | Shown in the viewer title. Defaults to the first meaningful source line. |
 | `origin.harness` | string | no | `claude`, `agy`, `opencode`, `codex`, `copilot`, `unknown`. |
 | `origin.pane` | string | no | Raw `HERDR_PANE_ID`. |
+| `origin.herdr_session` | string | no | herdr session name, as used in the spool path. |
 | `origin.session` | string | no | Harness session ID, if the adapter knows it. |
 | `origin.cwd` | string | no | Used to resolve relative `!include`s where a renderer allows them. |
 | `origin.via` | string | no | `cli` or the adapter name. |
@@ -194,6 +200,7 @@ then = "plantuml"
 | Field | Meaning |
 |---|---|
 | `detect` | Detection keys (§5). |
+| `reject` | Regular expressions (multiline). A matching source is refused before rendering, for constructs that run code or reach the network. |
 | `argv` | Command. Placeholders: `{in}` input file, `{out}` output file, `{outdir}` scratch dir, `{root}` plugin root, `{cwd}` Item `origin.cwd`. No shell. |
 | `in_ext` | Extension for the temporary input file. |
 | `out` | Output extension. `png` for v1 displays; `svg` is converted to PNG before display. |
@@ -280,7 +287,22 @@ Runs as the plugin pane `viewer` (placement `split`). Bound to one source pane, 
 - Scales the artifact to fit the pane, keeping aspect ratio; re-fits on `SIGWINCH`.
 - Multi-artifact Items (Structurizr) show `view 2/5` and use `h`/`l` to switch views.
 
-### 8.2 Keys
+### 8.2 Scroll sync
+
+Defined in [ADR-0008](adr/0008-scroll-sync-by-chat-anchors.md). A watcher thread reads the
+source pane's visible text every second (`herdr pane read --source visible`) and selects the
+Item whose anchor appears lowest on screen:
+
+- a marker line `[diagram: <title>]`, which the skill asks agents to write next to each
+  diagram and which `show` prints as a reminder when an agent calls it;
+- otherwise at least two distinctive source lines (diagram-type keywords and short lines
+  are ignored), which covers diagrams printed in the answer and caught by the Stop hook.
+
+A manual `j`/`k`/`g`/`G`/`r` choice wins for 8 seconds. `t` toggles sync; `scroll_sync = false`
+in `config.toml` turns it off. The same thread checks every 5 s whether the source pane
+still exists; only an explicit `pane_not_found` from herdr stops the viewer.
+
+### 8.3 Keys
 
 | Key | Action |
 |---|---|
@@ -292,10 +314,11 @@ Runs as the plugin pane `viewer` (placement `split`). Bound to one source pane, 
 | `o` | Open the artifact with `xdg-open` (macOS: `open`) |
 | `y` | Copy artifact path to the clipboard |
 | `r` / `G` | Follow newest |
+| `t` | Toggle scroll sync |
 | `g` | First Item |
 | `q` | Quit |
 
-### 8.3 Display
+### 8.4 Display
 
 Defined in [ADR-0004](adr/0004-display-kitty-graphics-in-herdr-pane.md).
 
@@ -326,7 +349,7 @@ with `origin.via = <adapter>`. Adapters import only the Item module.
 
 | Harness | Mechanism | Priority |
 |---|---|---|
-| Claude Code | `Stop` hook: read the transcript JSONL named in the hook input, take the assistant text after the last human prompt, extract fenced blocks. Installed with `herdr-diagram install-hook claude`. | done (0.1.0) |
+| Claude Code | `Stop` hook: extract fenced blocks from the hook input's `last_assistant_message` and from the assistant text after the last human prompt in the transcript JSONL. Both are needed: Claude Code can run the hook before the final message reaches the transcript. Installed with `herdr-diagram install-hook claude`. | done (0.1.0) |
 | Codex | Rollout JSONL of the bound session (session ID from herdr `report-agent-session`). | later |
 | opencode | Session storage or plugin event, to investigate. | later |
 | agy | Hook support unknown; level 1 only until investigated. | later |
@@ -404,6 +427,7 @@ herdr-diagrams/
     display.py     # Kitty graphics
     viewer.py      # pane TUI
     viewers.py     # registry of running viewers
+    sync.py        # scroll sync: chat anchors
     herdr.py       # herdr CLI wrapper
     skill.py       # install-skill
     cli.py         # commands, doctor
@@ -428,7 +452,8 @@ Dependency rules, enforced by `import-linter` in CI:
 | Registry | Every `detect` key in `renderers.toml` has a fixture. |
 | Display | Escape sequences generated for a known PNG and cell box match a snapshot. |
 | Viewer | PTY test: write Items, assert status line, transmit and placement sequences, navigation. |
-| Manual | Ghostty + herdr 0.9.3: every format displayed; Claude Code used the skill; the Stop hook queued diagrams; closing a pane closed its viewer. Screenshots in `docs/screenshots/`. |
+| Sync | Anchor matching table tests. |
+| Manual | Ghostty + herdr 0.9.3: every format displayed; Claude Code used the skill; the Stop hook queued three diagrams of a three-turn chat; scroll sync followed PageUp/PageDown/Ctrl+End in Claude Code; two spaces and two herdr sessions with the same pane ID kept separate viewers; closing a pane closed its viewer. Screenshots in `docs/screenshots/`. |
 
 ## 14. Milestones
 

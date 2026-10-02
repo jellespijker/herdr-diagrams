@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from pathlib import Path
 
@@ -67,10 +68,15 @@ def recent_digests(pane: str | None) -> set[str]:
 
 def run(hook_input: dict, pane: str | None) -> list[Path]:
     """Write Items for the diagrams in the last turn. Returns the written files."""
+    # Claude Code may run the Stop hook before the final message reaches the transcript,
+    # so the hook input's last_assistant_message is read as well. Duplicates collapse below.
+    texts = []
     transcript = hook_input.get("transcript_path")
-    if not transcript or not Path(transcript).is_file():
-        return []
-    blocks = detect.fenced_blocks(last_turn_text(Path(transcript)))
+    if transcript and Path(transcript).is_file():
+        texts.append(last_turn_text(Path(transcript)))
+    if isinstance(hook_input.get("last_assistant_message"), str):
+        texts.append(hook_input["last_assistant_message"])
+    blocks = detect.fenced_blocks("\n".join(texts))
     seen = recent_digests(pane)
     written = []
     for fmt, source in blocks:
@@ -95,10 +101,16 @@ def _is_ours(handler: dict) -> bool:
 
 def install_hook(settings: Path, command: str, uninstall: bool = False) -> str:
     """Add (or remove) the Stop hook in a Claude Code settings.json. Idempotent."""
+    settings = settings.expanduser()
+    if settings.is_symlink():  # dotfile managers link settings.json; edit the target
+        settings = settings.resolve()
     data = {}
     if settings.is_file():
         text = settings.read_text()
         data = json.loads(text) if text.strip() else {}
+    if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict) or \
+            not isinstance(data.get("hooks", {}).get("Stop", []), list):
+        raise ValueError(f"unexpected structure in {settings}; edit it by hand")
     stop = data.setdefault("hooks", {}).setdefault("Stop", [])
     present = any(_is_ours(h) for group in stop for h in group.get("hooks", []))
     if uninstall:
@@ -117,11 +129,15 @@ def install_hook(settings: Path, command: str, uninstall: bool = False) -> str:
             return f"already installed in {settings}"
         stop.append({"hooks": [{"type": "command", "command": command, "timeout": 120}]})
         action = "installed in"
+    mode = 0o600
     if settings.is_file():
+        mode = settings.stat().st_mode & 0o777
         backup = settings.with_name(settings.name + ".bak-herdr-diagrams")
         backup.write_text(settings.read_text())
+        os.chmod(backup, mode)
     settings.parent.mkdir(parents=True, exist_ok=True)
-    tmp = settings.with_name(settings.name + ".tmp")
+    tmp = settings.with_name(f".{settings.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.chmod(tmp, mode)
     tmp.replace(settings)
     return f"Stop hook {action} {settings}"

@@ -7,6 +7,8 @@
 # argv placeholders: {in} input file, {out} output file, {outdir} scratch dir,
 # {root} plugin root, {cwd} the Item's origin cwd. No shell is involved.
 # themes.<name> lists extra args appended for the configured theme (dark | light).
+# reject lists regular expressions (multiline); a source that matches is not rendered,
+# because the construct can run code or reach the network. Sources come from agents.
 
 [mermaid]
 detect = ["mermaid", "mmd"]
@@ -34,6 +36,7 @@ out = "png"
 themes.dark = ["--theme", "200"]
 themes.light = ["--theme", "0"]
 timeout = 60
+reject = ['icon:\s*"?https?://', 'https?://\S+\.(svg|png|jpe?g|gif)']
 
 [graphviz]
 detect = ["graphviz", "dot", "gv"]
@@ -50,4 +53,5 @@ argv = ["structurizr-cli", "export", "-w", "{in}", "-f", "plantuml/c4plantuml", 
 in_ext = "dsl"
 fanout = "*.puml"
 then = "plantuml"
+reject = ['^\s*!(script|plugin|extend\s+https?:)', '^\s*!(include|ref)\s+https?://']
 timeout = 90

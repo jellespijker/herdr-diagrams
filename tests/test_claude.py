@@ -26,8 +26,8 @@ def test_run_writes_valid_items_once():
     assert [it.format for it in items] == ["mermaid", "plantuml"]
     for path in written:
         jsonschema.validate(json.loads(path.read_text()), SCHEMA)
-    assert items[0].origin == {"harness": "claude", "pane": "w1:p1", "session": "s1",
-                               "cwd": "/tmp", "via": "claude-stop"}
+    assert items[0].origin == {"harness": "claude", "pane": "w1:p1", "herdr_session": "default",
+                               "session": "s1", "cwd": "/tmp", "via": "claude-stop"}
     assert claude.run(hook_input(), "w1:p1") == []  # de-duplicated
 
 
@@ -55,3 +55,35 @@ def test_install_hook_creates_settings(tmp_path):
     claude.install_hook(settings, "cmd hook claude-stop")
     assert json.loads(settings.read_text())["hooks"]["Stop"][0]["hooks"][0]["command"] == \
         "cmd hook claude-stop"
+
+
+def test_install_hook_edits_symlink_target_and_keeps_mode(tmp_path):
+    target = tmp_path / "dotfiles" / "settings.json"
+    target.parent.mkdir()
+    target.write_text('{"model": "opus"}')
+    target.chmod(0o600)
+    link = tmp_path / "settings.json"
+    link.symlink_to(target)
+    claude.install_hook(link, "x hook claude-stop")
+    assert link.is_symlink()
+    assert (target.stat().st_mode & 0o777) == 0o600
+    assert json.loads(target.read_text())["hooks"]["Stop"]
+
+
+def test_install_hook_refuses_unexpected_structure(tmp_path):
+    import pytest
+
+    settings = tmp_path / "settings.json"
+    settings.write_text('{"hooks": ["not", "a", "dict"]}')
+    with pytest.raises(ValueError):
+        claude.install_hook(settings, "x hook claude-stop")
+
+
+def test_last_assistant_message_covers_a_lagging_transcript(tmp_path):
+    lagging = tmp_path / "t.jsonl"
+    lagging.write_text(json.dumps({"type": "user", "message": {"content": "draw"}}) + "\n")
+    hook = {"transcript_path": str(lagging),
+            "last_assistant_message": "Here:\n```mermaid\npie title Fruit\n  \"A\" : 1\n```"}
+    written = claude.run(hook, "w1:p1")
+    assert [item.read(p).format for p in written] == ["mermaid"]
+    assert claude.run({"last_assistant_message": hook["last_assistant_message"]}, "w1:p1") == []

@@ -99,3 +99,25 @@ def test_cache_key_follows_referenced_config(tmp_path, monkeypatch):
     assert key != render.cache_key("mermaid", entry, "dark", b"y")
     files = render._referenced_files(entry, "dark")
     assert [f.name for f in files] == ["puppeteer.json", "mermaid-dark.json"]
+
+
+@pytest.mark.parametrize("fmt, source", [
+    ("structurizr", 'workspace {\n  !script groovy {\n    println "x"\n  }\n}'),
+    ("structurizr", "workspace {\n  !include https://example.com/model.dsl\n}"),
+    ("structurizr", "workspace {\n  !plugin com.example.Plugin\n}"),
+    ("d2", 'x: {icon: https://example.com/a.svg}'),
+])
+def test_reject_rules_refuse_code_and_network(fmt, source):
+    result = render.render_source(fmt, source.encode())
+    assert not result.ok and result.error.startswith("refused:")
+
+
+def test_timeout_kills_the_process_group(tmp_path):
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "renderers.toml").write_text(
+        '[slow]\ndetect = ["slow"]\nargv = ["sh", "-c", "sleep 30 & sleep 30; touch {out}"]\n'
+        'out = "png"\ntimeout = 1\n')
+    import time
+    started = time.time()
+    result = render.render_source("slow", b"x", registry=render.load_registry())
+    assert "timed out" in result.error and time.time() - started < 10

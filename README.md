@@ -28,9 +28,14 @@ flowchart LR
   with a line number, so the agent fixes it instead of telling you it worked.
 - For Claude Code, an optional **Stop hook** also picks up ` ```mermaid ` (and other
   diagram) blocks from its answers, without the agent doing anything.
+- **The viewer follows the chat.** Scroll the agent's conversation back and the viewer
+  switches to the diagram on screen; scroll down and it follows the newest again.
+- Every agent pane gets its own viewer, in every space, tab and herdr session.
 - Renderers are configuration, not code: add a format by editing `renderers.toml`.
 
 ![PlantUML, D2, Graphviz and Mermaid in the viewer](docs/screenshots/formats.png)
+
+![Scroll sync: the chat scrolled back to the checkout answer shows the sequence diagram (top); back at the bottom it shows the newest, the ER diagram (bottom)](docs/screenshots/scroll-sync.png)
 
 ## Requirements
 
@@ -119,10 +124,17 @@ Nothing was queued. Fix the diagram and run show again.
 | `o` | Open the image in your default viewer |
 | `y` | Copy the image path |
 | `r` | Follow the newest diagram again |
+| `t` | Turn scroll sync off or on |
 | `q` | Close the viewer |
 
 New diagrams take over the viewer until you move away from the newest; after that the
 header counts them (`+2 new (r)`) instead.
+
+**Scroll sync** (`⇅` in the header): about once a second the viewer reads the text visible
+in the agent's pane. It looks for the `[diagram: <title>]` line the skill asks agents to
+write next to each diagram, or for the diagram's own source lines when the agent printed
+the diagram in its answer. The bottom-most match wins. Pressing `j`/`k` overrides it for
+8 seconds.
 
 ### Commands
 
@@ -141,7 +153,9 @@ herdr-diagram gc                 delete diagrams and images older than 7 days
 
 Files live in the plugin config dir (`herdr plugin config-dir herdr-diagrams`):
 
-- `config.toml`: `theme = "dark"` (default) or `"light"`. `HERDR_DIAGRAMS_THEME` overrides it.
+- `config.toml`:
+  - `theme = "dark"` (default) or `"light"`. `HERDR_DIAGRAMS_THEME` overrides it.
+  - `scroll_sync = true` (default) or `false`.
 - `renderers.toml`: override a bundled renderer or add one. Example, a self-hosted
   [Kroki](https://kroki.io) for BPMN:
 
@@ -153,8 +167,9 @@ Files live in the plugin config dir (`herdr plugin config-dir herdr-diagrams`):
   out = "png"
   ```
 
-State (spool and image cache) lives in `~/.local/state/herdr-diagrams`
-(`HERDR_DIAGRAMS_HOME` overrides it). Closing a pane removes its diagrams.
+State lives in `~/.local/state/herdr-diagrams` (`HERDR_DIAGRAMS_HOME` overrides it):
+diagrams per herdr session and pane under `spool/<session>/<pane>/`, rendered images in
+`cache/`. Closing a pane removes its diagrams.
 
 ## Security
 
@@ -162,11 +177,18 @@ Diagram sources come from agents, so they are treated as untrusted input:
 
 - Renderers run as argv lists, never through a shell.
 - PlantUML runs with `PLANTUML_SECURITY_PROFILE=SANDBOX`: no file includes, no URL fetches.
+- Structurizr sources using `!script`, `!plugin` or a remote `!include`, and D2 sources with
+  remote icons or images, are refused (`reject` in `renderers.toml`).
 - Mermaid's headless Chromium keeps its sandbox and has all network traffic sent to a
   dead proxy.
 - Nothing is sent to an online renderer. Add one yourself only if you trust it with your
   diagrams.
-- Limits: 1 MiB source, 20 MiB image, 30 to 90 s render time.
+- Limits: 1 MiB source, 20 MiB image, 30 to 90 s render time; on timeout the renderer's
+  whole process group (Chromium, Java) is killed.
+- Titles, sources and renderer errors are stripped of terminal control characters before
+  they are drawn.
+- `install-hook` edits the target of a symlinked `settings.json`, keeps its file mode and
+  writes a backup.
 
 ## Troubleshooting
 

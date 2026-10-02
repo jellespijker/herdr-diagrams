@@ -20,14 +20,16 @@ import time
 import tty
 from pathlib import Path
 
-from . import display, herdr, item, render, viewers
+from . import display, herdr, item, render, sync, viewers
 
 POLL_SPOOL = 0.4
 POLL_PANE = 5.0
+POLL_SYNC = 1.0
+MANUAL_HOLD = 8.0  # seconds that a manual j/k choice beats scroll sync
 IMAGE_ID_BASE = 4200
 
 KEYS_HELP = ["j/k item", "h/l view", "s source", "o open", "+/- zoom", "0 fit", "arrows pan",
-             "y copy path", "r follow", "q quit"]
+             "t sync scroll", "y copy path", "r follow", "q quit"]
 
 ARROWS = {b"\x1b[A": "up", b"\x1b[B": "down", b"\x1b[C": "right", b"\x1b[D": "left",
           b"\x1bOA": "up", b"\x1bOB": "down", b"\x1bOC": "right", b"\x1bOD": "left"}
@@ -63,7 +65,10 @@ class Viewer:
         self.flash = ""
         self.flash_until = 0.0
         self.running = True
-        self.pane_misses = 0
+        self.sync = bool(render.load_settings().get("scroll_sync", True)) and bool(bind)
+        self.manual_until = 0.0
+        self.last_visible = None
+        self.sync_target: int | None = None
 
     # --- terminal -----------------------------------------------------------
 
@@ -87,8 +92,8 @@ class Viewer:
 
     def poll_spool(self) -> None:
         directory = item.spool_dir(self.bind)
-        try:
-            stamp = directory.stat().st_mtime_ns
+        try:  # names too: coarse mtimes can hide a second write in the same tick
+            stamp = (directory.stat().st_mtime_ns, tuple(sorted(os.listdir(directory))))
         except OSError:
             stamp = None
         if stamp == self.spool_stamp:
@@ -172,6 +177,8 @@ class Viewer:
                 left += f" · view {self.view + 1}/{len(result.artifacts)}"
             left += f" · {it.display_title}"
         right = f"+{self.unseen} new (r) " if self.unseen else ("following " if self.follow else "pinned ")
+        if self.sync:
+            right = "⇅ " + right
         if self.zoom != 1.0:
             right = f"{self.zoom:.1f}x · " + right
         room = max(0, cols - len(right) - 1)
@@ -228,6 +235,7 @@ class Viewer:
                 text = Path(it.path).read_text(errors="replace") if it.format != "image" else it.path
             except OSError as exc:
                 text = str(exc)
+        text = item.clean_text(text.expandtabs(4))
         lines = []
         for raw in text.splitlines():
             lines += textwrap.wrap(raw, cols - 2, replace_whitespace=False) or [""]
@@ -237,9 +245,10 @@ class Viewer:
         return "".join(out)
 
     def error_view(self, result: render.Result, cols: int, rows: int) -> str:
-        detail = render.short_detail(result.detail)
+        detail = item.clean_text(render.short_detail(result.detail))
+        error = item.clean_text(result.error or "render failed")
         lines = [ln for raw in detail.splitlines() for ln in (textwrap.wrap(raw, cols - 4) or [""])]
-        out = ["\x1b[3;3H" + _style(f"✗ {result.error or 'render failed'}"[: cols - 4], "1;31")]
+        out = ["\x1b[3;3H" + _style(f"✗ {error}"[: cols - 4], "1;31")]
         for offset, line in enumerate(lines[: rows - 7]):
             out.append(f"\x1b[{5 + offset};3H" + _style(line, "31"))
         out.append(f"\x1b[{rows - 2};3H" + _style("s: show source", "2"))
@@ -317,6 +326,8 @@ class Viewer:
     def handle(self, key: str) -> None:
         result = self.results.get(self.current.id) if self.current else None
         views = len(result.artifacts) if result and result.ok else 1
+        if key in ("j", "k", "g", "G", "r", "up", "down") and not (key in ("up", "down") and self.zoom > 1):
+            self.manual_until = time.time() + MANUAL_HOLD
         if key == "q":
             self.running = False
         elif key == "j" or (key == "down" and self.zoom == 1.0):
@@ -343,6 +354,10 @@ class Viewer:
             self.zoom, self.pan = 1.0, [0.5, 0.5]
         elif key == "s":
             self.show_source = not self.show_source
+        elif key == "t":
+            self.sync = not self.sync and bool(self.bind)
+            self.last_visible = None
+            self.notify("scroll sync on: the viewer follows the chat" if self.sync else "scroll sync off")
         elif key == "o":
             self.open_external()
         elif key == "y":
@@ -389,19 +404,41 @@ class Viewer:
 
     # --- lifecycle --------------------------------------------------------------
 
-    def check_bound_pane(self) -> None:
-        if not self.bind or not herdr.binary():
+    def watcher(self) -> None:
+        """Background checks that call herdr, so a slow server never blocks the UI.
+
+        Every POLL_SYNC seconds: find the diagram visible in the chat (scroll sync).
+        Every POLL_PANE seconds: stop when herdr says the source pane is gone.
+        """
+        last_pane_check = 0.0
+        while self.running:
+            time.sleep(POLL_SYNC)
+            if self.sync and self.items and time.time() >= self.manual_until:
+                visible = herdr.read_visible(self.bind)
+                if visible is not None and visible != self.last_visible:
+                    self.last_visible = visible
+                    target = sync.visible_item(list(self.items), visible)
+                    if target is not None:
+                        self.sync_target = target
+                        self.wake()
+            if self.bind and time.time() - last_pane_check > POLL_PANE:
+                last_pane_check = time.time()
+                if herdr.pane_exists(self.bind) is False:
+                    self.running = False
+                    self.wake()
+
+    def apply_sync(self) -> None:
+        target, self.sync_target = self.sync_target, None
+        if target is None or not self.sync or time.time() < self.manual_until:
             return
-        if herdr.pane(self.bind) is None:
-            self.pane_misses += 1
-            if self.pane_misses >= 2:
-                self.running = False
-        else:
-            self.pane_misses = 0
+        if 0 <= target < len(self.items) and target != self.index:
+            self.follow = target == len(self.items) - 1
+            self.select(target)
 
     def run(self) -> int:
         viewers.register(self.bind, os.environ.get("HERDR_PANE_ID"))
         threading.Thread(target=self.worker, daemon=True).start()
+        threading.Thread(target=self.watcher, daemon=True).start()
         old = termios.tcgetattr(self.in_fd) if os.isatty(self.in_fd) else None
         signal.signal(signal.SIGWINCH, lambda *_: (setattr(self, "dirty", True), self.wake()))
         signal.signal(signal.SIGTERM, lambda *_: setattr(self, "running", False))
@@ -410,12 +447,9 @@ class Viewer:
             if old:
                 tty.setcbreak(self.in_fd)
             self.write("\x1b[?1049h\x1b[?25l\x1b[2J")
-            last_pane_check = time.time()
             while self.running:
                 self.poll_spool()
-                if time.time() - last_pane_check > POLL_PANE:
-                    last_pane_check = time.time()
-                    self.check_bound_pane()
+                self.apply_sync()
                 if self.dirty:
                     self.draw()
                 ready, _, _ = select.select([self.in_fd, self.wake_r], [], [], POLL_SPOOL)

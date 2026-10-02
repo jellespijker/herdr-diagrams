@@ -13,3 +13,4 @@ old one and set the old one's status to `Superseded by ADR-NNNN`.
 | [0005](0005-harness-integration-cli-and-skill-first.md) | Harness integration: CLI and shared skill first, adapters later | Accepted |
 | [0006](0006-python-stdlib-external-toolchains.md) | Python standard library; renderer toolchains stay external | Accepted |
 | [0007](0007-show-renders-before-queueing.md) | `show` renders before queueing and reports errors to the agent | Accepted |
+| [0008](0008-scroll-sync-by-chat-anchors.md) | Scroll sync by anchors in the visible chat text | Accepted |

@@ -22,6 +22,14 @@ NOPANE = "_nopane"
 HARNESSES = ("claude", "agy", "opencode", "codex", "copilot", "unknown")
 
 
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def clean_text(text: str) -> str:
+    """Untrusted text without terminal control characters (keeps newline and tab)."""
+    return _CONTROL.sub("", text)
+
+
 class ItemError(ValueError):
     """An Item does not satisfy the contract."""
 
@@ -51,8 +59,29 @@ def pane_key(pane_id: str | None) -> str:
     return key
 
 
+def herdr_session(env: dict | None = None) -> str:
+    """Name of the herdr session (server) this process belongs to.
+
+    Pane IDs are only unique within one session, so every per-pane path is scoped by it.
+    herdr sets HERDR_SESSION in panes; plugin processes get HERDR_SOCKET_PATH, which is
+    `.../sessions/<name>/herdr.sock` for named sessions.
+    """
+    env = os.environ if env is None else env
+    name = env.get("HERDR_SESSION")
+    if not name:
+        socket = Path(env.get("HERDR_SOCKET_PATH") or "")
+        name = socket.parent.name if socket.parent.parent.name == "sessions" else "default"
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    return name if name not in ("", ".", "..") else "default"
+
+
+def scope(pane_id: str | None) -> Path:
+    """Relative per-pane path: `<herdr session>/<pane key>`."""
+    return Path(herdr_session()) / pane_key(pane_id)
+
+
 def spool_dir(pane_id: str | None) -> Path:
-    return spool_root() / pane_key(pane_id)
+    return spool_root() / scope(pane_id)
 
 
 @dataclass
@@ -82,6 +111,9 @@ class Item:
 
     @property
     def display_title(self) -> str:
+        return clean_text(self._raw_title()).replace("\n", " ").replace("\t", " ")
+
+    def _raw_title(self) -> str:
         if self.title:
             return self.title
         if self.path:
@@ -128,7 +160,7 @@ def validate(data: dict) -> None:
     origin = data.get("origin", {})
     if not isinstance(origin, dict):
         raise ItemError("field 'origin' must be an object")
-    for key in ("harness", "pane", "session", "cwd", "via"):
+    for key in ("harness", "pane", "herdr_session", "session", "cwd", "via"):
         if key in origin and origin[key] is not None and not isinstance(origin[key], str):
             raise ItemError(f"field 'origin.{key}' must be a string")
 
@@ -165,6 +197,7 @@ def new(
     origin = {
         "harness": harness or detect_harness(),
         "pane": pane,
+        "herdr_session": herdr_session(),
         "session": session,
         "cwd": cwd or os.getcwd(),
         "via": via,

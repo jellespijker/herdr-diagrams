@@ -17,6 +17,7 @@
       "properties": {
         "harness": { "type": "string" },
         "pane": { "type": "string" },
+        "herdr_session": { "type": "string" },
         "session": { "type": "string" },
         "cwd": { "type": "string" },
         "via": { "type": "string" }

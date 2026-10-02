@@ -37,6 +37,27 @@ def call(*args: str, timeout: float = 10) -> dict | None:
     return None
 
 
+def pane_exists(pane_id: str) -> bool | None:
+    """True or False when herdr answered; None when it could not be asked."""
+    exe = binary()
+    if not exe:
+        return None
+    try:
+        proc = subprocess.run([exe, "pane", "get", pane_id], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for stream in (proc.stdout, proc.stderr):
+        try:
+            data = json.loads(stream)
+        except ValueError:
+            continue
+        if "result" in data:
+            return True
+        if (data.get("error") or {}).get("code") == "pane_not_found":
+            return False
+    return None
+
+
 def pane(pane_id: str) -> dict | None:
     result = call("pane", "get", pane_id)
     return (result or {}).get("pane")
@@ -70,3 +91,16 @@ def close_pane(pane_id: str) -> None:
 
 def set_title(pane_id: str, title: str) -> None:
     call("pane", "rename", pane_id, title)
+
+
+def read_visible(pane_id: str, lines: int = 300) -> str | None:
+    """Text currently visible in a pane, or None when herdr cannot be asked."""
+    exe = binary()
+    if not exe:
+        return None
+    try:
+        proc = subprocess.run([exe, "pane", "read", pane_id, "--source", "visible", "--lines", str(lines)],
+                              capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return proc.stdout if proc.returncode == 0 and not proc.stdout.startswith('{"error"') else None

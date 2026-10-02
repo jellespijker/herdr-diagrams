@@ -11,9 +11,12 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -146,6 +149,28 @@ def _chromium_env() -> dict:
     return {}
 
 
+def _exec(argv: list[str], *, stdin: bytes | None, cwd: str | None, env: dict | None,
+          timeout: float) -> subprocess.CompletedProcess:
+    """Run argv in its own process group; on timeout kill the whole group.
+
+    Renderers start helpers (mmdc starts Chromium, wrapper scripts start Java) that a
+    plain timeout would leave running.
+    """
+    proc = subprocess.Popen(argv, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env,
+                            start_new_session=True)
+    try:
+        out, err = proc.communicate(stdin, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
+        raise RenderError(f"{Path(argv[0]).name} timed out after {timeout:g} s") from None
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
 def _run(entry: dict, theme: str, source: bytes, workdir: Path, cwd: str | None) -> list[Path]:
     """Run one renderer step. Returns produced files (one, or many for fanout)."""
     in_file = workdir / f"input.{entry.get('in_ext', 'txt')}"
@@ -168,13 +193,8 @@ def _run(entry: dict, theme: str, source: bytes, workdir: Path, cwd: str | None)
     env.update({k: str(v) for k, v in entry.get("env", {}).items()})
     env.update(_chromium_env())
     stdio = bool(entry.get("stdio"))
-    try:
-        proc = subprocess.run(
-            argv, input=source if stdio else None, capture_output=True,
-            cwd=str(workdir), env=env, timeout=entry.get("timeout", DEFAULT_TIMEOUT),
-        )
-    except subprocess.TimeoutExpired:
-        raise RenderError(f"{Path(argv[0]).name} timed out") from None
+    proc = _exec(argv, stdin=source if stdio else None, cwd=str(workdir), env=env,
+                 timeout=entry.get("timeout", DEFAULT_TIMEOUT))
     stderr = proc.stderr.decode(errors="replace")
     if proc.returncode != 0:
         tail = "\n".join(stderr.strip().splitlines()[-20:])
@@ -209,7 +229,7 @@ def _png_from(file: Path, dest: Path) -> None:
         candidates.append(["ffmpeg", "-loglevel", "error", "-y", "-i", str(file),
                            "-frames:v", "1", str(dest)])
     for argv in candidates:
-        if subprocess.run(argv, capture_output=True, timeout=60).returncode == 0 and dest.is_file():
+        if _exec(argv, stdin=None, cwd=None, env=None, timeout=60).returncode == 0 and dest.is_file():
             return
     raise RenderError(f"cannot convert {file.suffix} to PNG",
                       "Install ImageMagick, librsvg or ffmpeg, or press o to open externally.")
@@ -221,14 +241,16 @@ def _store(produced: list[Path], key: str) -> list[Path]:
     artifacts = []
     for index, file in enumerate(produced):
         dest = cache / (f"{key}.png" if len(produced) == 1 else f"{key}-{index:02d}.png")
-        tmp = dest.with_suffix(".tmp.png")
+        tmp = dest.with_name(f".{dest.stem}.{os.getpid()}.{threading.get_ident()}.tmp.png")
         _png_from(file, tmp)
         if tmp.stat().st_size > MAX_ARTIFACT_BYTES:
             tmp.unlink()
             raise RenderError("rendered image exceeds 20 MiB")
         os.replace(tmp, dest)
         artifacts.append(dest)
-    (cache / f"{key}.list").write_text("\n".join(p.name for p in artifacts))
+    listing = cache / f".{key}.{os.getpid()}.{threading.get_ident()}.list.tmp"
+    listing.write_text("\n".join(p.name for p in artifacts))
+    os.replace(listing, cache / f"{key}.list")
     return artifacts
 
 
@@ -257,6 +279,13 @@ def render_source(fmt: str, data: bytes, *, registry: dict | None = None,
         if then not in registry:
             return Result(error=f"renderer {fmt!r} chains to unknown {then!r}")
         chain.append(registry[then])
+    text = data.decode(errors="replace")
+    for pattern in entry.get("reject", []):
+        if match := re.search(pattern, text, re.MULTILINE):
+            return Result(error=f"refused: {fmt} source uses {match.group(0).strip()!r}",
+                          detail="This construct can run code or reach the network, so "
+                                 "herdr-diagrams does not render it. Change the "
+                                 "reject list in renderers.toml if you trust the source.")
     key = cache_key(fmt, chain, theme, data)
     if hit := _cached(key):
         return Result(artifacts=hit, cached=True)
@@ -292,6 +321,8 @@ def render_item(it: item_mod.Item, *, registry: dict | None = None,
             return Result(artifacts=_store([Path(it.path)], key))
         except RenderError as exc:
             return Result(error=str(exc), detail=exc.detail)
+        except OSError as exc:
+            return Result(error=f"cannot store image: {exc}")
     if it.source is not None:
         data = it.source.encode()
     else:

@@ -42,3 +42,11 @@ Alternatives rejected:
 - A moved pane gets a new ID in herdr; Items written before the move stay under the old
   key. Accepted for v1; the viewer may later follow `pane move` events.
 - The schema file is the contract test fixture for every adapter.
+
+## Amendment (2026-10-02, after implementation)
+
+Pane IDs are unique only within one herdr session (server): two sessions both have `w1:p1`.
+The spool and the viewer registry are therefore scoped by session:
+`spool/<herdr-session>/<pane-key>/`. The session name comes from `HERDR_SESSION`, or from
+`HERDR_SOCKET_PATH` for plugin processes, or is `default`. Items record it in the optional
+field `origin.herdr_session`; as an additive field it keeps `v = 1`.

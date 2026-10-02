@@ -64,10 +64,21 @@ Rules of thumb:
 
 ## Tell the user
 
-After a successful `show`, mention the diagram in one line, for example "The login flow is
-in the diagram pane." In the viewer the user presses `j`/`k` to switch diagrams, `h`/`l` to
-switch views of one Structurizr workspace, `+`/`-` to zoom and `o` to open the image. Do not paste the diagram source into your answer as well, unless
-the user asked for the source. Do not print image paths.
+After a successful `show`, put a marker line in your answer where the diagram belongs, with
+the exact title you passed to `--title`:
+
+```
+[diagram: Login flow]
+```
+
+The viewer uses these markers to follow the chat: when the user scrolls back to an earlier
+answer, the viewer switches to the diagram whose marker is on screen. Write one marker per
+diagram, on its own line, next to the text that explains it.
+
+In the viewer the user presses `j`/`k` to switch diagrams, `h`/`l` to switch views of one
+Structurizr workspace, `+`/`-` to zoom and `o` to open the image. Do not paste the diagram
+source into your answer as well, unless the user asked for the source. Do not print image
+paths.
 
 ## Troubleshooting
 

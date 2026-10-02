@@ -36,8 +36,12 @@ def ensure_viewer(pane: str | None, cwd: str | None = None) -> str:
         return "running"
     if not herdr.binary():
         return "no-herdr"
+    viewers.mark_pending(pane)
     result = herdr.open_viewer(pane, cwd)
-    return "opened" if result is not None else "open-failed"
+    if result is None:
+        viewers.forget(pane)
+        return "open-failed"
+    return "opened"
 
 
 def _origin_from_herdr(pane: str | None) -> tuple[str | None, str | None]:
@@ -71,7 +75,7 @@ def cmd_show(args) -> int:
         fmt = detect.detect(registry, fmt=args.format, path=path, source=source)
     except detect.DetectError as exc:
         print(f"herdr-diagram show: {exc}", file=sys.stderr)
-        return EXIT_DETECT
+        return EXIT_USAGE if args.format else EXIT_DETECT
     if path and fmt != "image":
         source, path = Path(path).read_text(errors="replace"), None
     harness, session = _origin_from_herdr(pane)
@@ -84,11 +88,14 @@ def cmd_show(args) -> int:
     if not args.no_wait:
         result = render.render_item(it, registry=registry)
         if not result.ok:
-            print(f"herdr-diagram show: {fmt} render failed: {result.error}", file=sys.stderr)
+            print(f"herdr-diagram show: {fmt} render failed: {item.clean_text(result.error)}",
+                  file=sys.stderr)
             if detail := render.short_detail(result.detail):
-                print(detail, file=sys.stderr)
+                print(item.clean_text(detail), file=sys.stderr)
             print("Nothing was queued. Fix the diagram and run show again.", file=sys.stderr)
             return EXIT_RUNTIME
+    if not it.title:
+        it.title = it.display_title  # a title is what the chat marker refers to
     written = item.write(it)
     state = "not-opened" if args.no_open else ensure_viewer(pane, it.origin.get("cwd"))
     where = {"running": f"shown in the viewer beside pane {pane}",
@@ -99,6 +106,8 @@ def cmd_show(args) -> int:
     if not pane:
         where = "queued outside herdr (no HERDR_PANE_ID); run `herdr-diagram render` for a file"
     print(f"{fmt}: {it.display_title} — {where}")
+    if pane and it.origin.get("harness", "unknown") != "unknown":
+        print(f"Write this line in your answer where the diagram belongs: [diagram: {it.display_title}]")
     if args.verbose:
         print(written)
     return 0
@@ -126,7 +135,7 @@ def cmd_render(args) -> int:
         fmt = detect.detect(registry, fmt=args.format, path=str(file))
     except detect.DetectError as exc:
         print(f"herdr-diagram render: {exc}", file=sys.stderr)
-        return EXIT_DETECT
+        return EXIT_USAGE if args.format else EXIT_DETECT
     if fmt == "image":
         it = item.Item(format="image", path=str(file.resolve()), id="render", created=0)
         result = render.render_item(it, registry=registry)
@@ -197,8 +206,9 @@ def cmd_doctor(args) -> int:
         herdr_version = " ".join(proc.stdout.split()[-1:])
     print("herdr")
     line("binary", f"{exe} {herdr_version}".strip() if exe else "not found", bool(exe))
-    line("inside herdr", os.environ.get("HERDR_PANE_ID") or "no (HERDR_PANE_ID unset)",
-         bool(os.environ.get("HERDR_PANE_ID")))
+    inside = os.environ.get("HERDR_ENV") == "1" or bool(os.environ.get("HERDR_PANE_ID"))
+    line("inside herdr", (f"yes, pane {os.environ['HERDR_PANE_ID']}" if os.environ.get("HERDR_PANE_ID")
+                          else "yes") if inside else "no (run it in a herdr pane)", inside)
     setting = _kitty_graphics_setting()
     line("kitty_graphics", setting, "OFF" not in setting)
     print("paths")
@@ -220,7 +230,25 @@ def cmd_doctor(args) -> int:
         line(name, f"{state}: {dest}", state == "installed")
     if not ok:
         print("\nSome checks failed. Missing renderers only disable their format.")
+    wait_for_key(args)
     return 0
+
+
+def wait_for_key(args) -> None:
+    """Keep a popup pane open until the user has read its output."""
+    if getattr(args, "wait", False) and sys.stdin.isatty():
+        print("\nPress Enter to close.", end="", flush=True)
+        try:
+            sys.stdin.readline()
+        except (OSError, KeyboardInterrupt):
+            pass
+
+
+def cmd_popup(args) -> int:
+    """Plugin action helper: show a command's output in a popup pane."""
+    result = herdr.call("plugin", "pane", "open", "--plugin", herdr.PLUGIN_ID,
+                        "--entrypoint", args.name)
+    return 0 if result is not None else EXIT_RUNTIME
 
 
 def cmd_install_skill(args) -> int:
@@ -234,6 +262,8 @@ def cmd_install_skill(args) -> int:
     except ValueError as exc:
         print(f"herdr-diagram install-skill: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    finally:
+        wait_for_key(args)
     return 0
 
 
@@ -300,7 +330,11 @@ def _parse_age(text: str) -> float:
 
 
 def cmd_gc(args) -> int:
-    cutoff = time.time() - _parse_age(args.older_than)
+    try:
+        cutoff = time.time() - _parse_age(args.older_than)
+    except ValueError:
+        print(f"herdr-diagram gc: bad age {args.older_than!r}; use e.g. 7d, 12h, 30m", file=sys.stderr)
+        return EXIT_USAGE
     removed = 0
     for directory in (item.spool_root(), item.cache_dir()):
         if not directory.is_dir():
@@ -309,9 +343,11 @@ def cmd_gc(args) -> int:
             if file.is_file() and file.stat().st_mtime < cutoff:
                 file.unlink()
                 removed += 1
-    for pane_dir in item.spool_root().glob("*") if item.spool_root().is_dir() else []:
-        if pane_dir.is_dir() and not any(pane_dir.iterdir()):
-            pane_dir.rmdir()
+    for root in (item.spool_root(), item.cache_dir()):
+        for directory in sorted((d for d in root.rglob("*") if d.is_dir()), reverse=True) \
+                if root.is_dir() else []:
+            if not any(directory.iterdir()):
+                directory.rmdir()
     print(f"removed {removed} files older than {args.older_than}")
     return 0
 
@@ -356,13 +392,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_view)
 
     p = sub.add_parser("doctor", help="check herdr, graphics, renderers and skills")
+    p.add_argument("--wait", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("popup", help=argparse.SUPPRESS)
+    p.add_argument("name", choices=["doctor", "install-skill", "uninstall-skill"])
+    p.set_defaults(func=cmd_popup)
 
     p = sub.add_parser("install-skill", help="link the skill and CLI into each harness")
     p.add_argument("--harness", action="append",
                    help="claude, agents (codex/opencode/copilot/gemini), agy, cli; repeatable")
     p.add_argument("--uninstall", action="store_true")
     p.add_argument("--status", action="store_true")
+    p.add_argument("--wait", action="store_true", help=argparse.SUPPRESS)
     p.set_defaults(func=cmd_install_skill)
 
     p = sub.add_parser("install-hook", help="add the automatic Claude Code Stop hook")
