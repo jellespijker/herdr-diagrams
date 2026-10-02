@@ -1,0 +1,6 @@
+flowchart LR
+    agent([Coding agent]) -->|herdr-diagram show| spool[(spool)]
+    hook[Claude Stop hook] --> spool
+    spool --> viewer[Viewer pane]
+    viewer -->|mmdc · plantuml · d2 · dot| cache[(PNG cache)]
+    cache -->|Kitty graphics| ghostty[Ghostty]

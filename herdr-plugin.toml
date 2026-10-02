@@ -1,0 +1,57 @@
+# herdr-plugin.toml — manifest for herdr-diagrams. See docs/spec.md.
+#
+# Shows diagrams (Mermaid, PlantUML, Structurizr, D2, Graphviz) and images produced
+# by coding agents as real images in a herdr split pane, drawn with the Kitty
+# graphics protocol. Herdr forwards the pane's graphics to a capable outer terminal
+# (Ghostty, kitty, WezTerm) when `[terminal] kitty_graphics` is on (the default).
+
+id = "herdr-diagrams"
+name = "Diagrams"
+version = "0.1.0"
+description = "Mermaid, PlantUML, Structurizr, D2 and Graphviz diagrams from your coding agents, rendered as images in a split pane."
+min_herdr_version = "0.9.3"
+platforms = ["linux", "macos"]
+
+# Installs @mermaid-js/mermaid-cli (mmdc) plugin-locally, plus its headless browser.
+[[build]]
+command = ["sh", "scripts/build.sh"]
+
+[[actions]]
+id = "open"
+title = "Diagrams: open viewer beside this pane"
+contexts = ["pane", "workspace"]
+command = ["bin/herdr-diagram", "open"]
+
+[[actions]]
+id = "install-skill"
+title = "Diagrams: install skill and CLI for all agents"
+contexts = ["workspace", "global"]
+command = ["bin/herdr-diagram", "install-skill"]
+
+[[actions]]
+id = "uninstall-skill"
+title = "Diagrams: remove skill and CLI links"
+contexts = ["workspace", "global"]
+command = ["bin/herdr-diagram", "install-skill", "--uninstall"]
+
+[[actions]]
+id = "doctor"
+title = "Diagrams: check setup"
+contexts = ["workspace", "global"]
+command = ["bin/herdr-diagram", "doctor"]
+
+[[actions]]
+id = "gc"
+title = "Diagrams: delete diagrams older than 7 days"
+contexts = ["workspace", "global"]
+command = ["bin/herdr-diagram", "gc"]
+
+[[panes]]
+id = "viewer"
+title = "Diagrams"
+placement = "split"
+command = ["bin/herdr-diagram", "view"]
+
+[[events]]
+on = "pane.closed"
+command = ["bin/herdr-diagram", "event"]

@@ -1,0 +1,14 @@
+@startuml
+title Rendering an Item
+actor Agent
+participant "herdr-diagram" as CLI
+database Spool
+participant Viewer
+participant Renderer
+Agent -> CLI : show diagram.puml
+CLI -> Spool : write Item (atomic rename)
+Viewer -> Spool : poll
+Viewer -> Renderer : render(item)
+Renderer --> Viewer : PNG artifact (cached)
+Viewer -> Viewer : Kitty graphics place
+@enduml

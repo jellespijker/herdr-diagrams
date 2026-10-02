@@ -1,0 +1,8 @@
+direction: right
+agent: Coding agent {shape: person}
+herdr: herdr {
+  pane: Agent pane
+  viewer: Viewer pane
+}
+agent -> herdr.pane: prompt
+herdr.pane -> herdr.viewer: herdr-diagram show

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""herdr-diagram: show diagrams from coding agents in a herdr pane."""
+import os
+import sys
+
+if sys.version_info < (3, 11):
+    sys.exit("herdr-diagram needs Python 3.11 or later")
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "src"))
+
+from herdr_diagrams.cli import main  # noqa: E402
+
+sys.exit(main())

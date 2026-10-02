@@ -1,0 +1,5 @@
+digraph pipeline {
+  rankdir=LR; node [shape=box, style=rounded];
+  ingest -> spool -> render -> cache -> display;
+  render -> error [style=dashed];
+}

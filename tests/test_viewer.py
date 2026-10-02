@@ -1,0 +1,93 @@
+"""PTY test: run the real viewer in a pseudo-terminal and check what it draws."""
+
+import fcntl
+import os
+import pty
+import select
+import signal
+import struct
+import termios
+import time
+
+from conftest import CLI, FIXTURES
+from herdr_diagrams import item
+
+
+def read_until(fd, needle: bytes, timeout: float = 30.0) -> bytes:
+    buf = b""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.2)
+        if ready:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                break
+            buf += chunk
+            if needle in buf:
+                return buf
+    raise AssertionError(f"{needle!r} not seen; got tail {buf[-400:]!r}")
+
+
+def spawn_viewer(bind: str):
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execv(str(CLI), [str(CLI), "view", "--bind", bind])
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 1000, 630))
+    return pid, fd
+
+
+def stop(pid, fd):
+    try:
+        os.write(fd, b"q")
+        for _ in range(50):
+            done, _ = os.waitpid(pid, os.WNOHANG)
+            if done:
+                return
+            time.sleep(0.1)
+        os.kill(pid, signal.SIGKILL)
+    finally:
+        os.close(fd)
+
+
+def test_viewer_draws_items_and_navigates():
+    pid, fd = spawn_viewer("w9:p1")
+    try:
+        read_until(fd, b"Waiting for diagrams")
+        item.write(item.new("image", path=str(FIXTURES / "pixel.png"), title="first", pane="w9:p1"))
+        out = read_until(fd, b"a=p,")
+        assert b"1/1" in out and b"first" in out
+        assert b"\x1b_Ga=t,f=100,t=d," in out
+        item.write(item.new("image", path=str(FIXTURES / "pixel.png"), title="second", pane="w9:p1"))
+        read_until(fd, b"second")
+        os.write(fd, b"k")
+        out = read_until(fd, b"pinned")
+        assert b"1/2" in out
+        item.write(item.new("image", path=str(FIXTURES / "pixel.png"), title="third", pane="w9:p1"))
+        read_until(fd, b"+1 new")
+        os.write(fd, b"r")
+        read_until(fd, b"3/3")
+        os.write(fd, b"s")
+        read_until(fd, str(FIXTURES / "pixel.png").encode())
+    finally:
+        stop(pid, fd)
+
+
+def test_viewer_shows_render_errors():
+    pid, fd = spawn_viewer("w9:p2")
+    try:
+        read_until(fd, b"Waiting for diagrams")
+        item.write(item.new("image", path="/nonexistent/missing.png", pane="w9:p2"))
+        read_until(fd, b"cannot read image")
+    finally:
+        stop(pid, fd)
+
+
+def test_viewer_registers_and_unregisters():
+    from herdr_diagrams import viewers
+
+    pid, fd = spawn_viewer("w9:p3")
+    read_until(fd, b"Waiting for diagrams")
+    assert viewers.lookup("w9:p3")["pid"] == pid
+    stop(pid, fd)
+    assert viewers.lookup("w9:p3") is None

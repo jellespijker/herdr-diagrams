@@ -1,0 +1,4 @@
+{
+  "headless": "shell",
+  "args": ["--disable-gpu", "--no-first-run", "--proxy-server=127.0.0.1:9", "--proxy-bypass-list=<-loopback>"]
+}

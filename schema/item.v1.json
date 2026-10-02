@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jellespijker/herdr-diagrams/schema/item.v1.json",
+  "title": "herdr-diagrams Item v1",
+  "description": "One diagram or image queued for display. See docs/spec.md section 4.",
+  "type": "object",
+  "required": ["v", "id", "format", "created"],
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "format": { "type": "string", "minLength": 1 },
+    "source": { "type": ["string", "null"], "maxLength": 1048576 },
+    "path": { "type": ["string", "null"], "pattern": "^/" },
+    "title": { "type": ["string", "null"] },
+    "origin": {
+      "type": "object",
+      "properties": {
+        "harness": { "type": "string" },
+        "pane": { "type": "string" },
+        "session": { "type": "string" },
+        "cwd": { "type": "string" },
+        "via": { "type": "string" }
+      }
+    },
+    "created": { "type": "integer" }
+  },
+  "oneOf": [
+    { "required": ["source"], "properties": { "source": { "type": "string" }, "path": { "type": "null" } } },
+    { "required": ["path"], "properties": { "path": { "type": "string" }, "source": { "type": "null" } } }
+  ]
+}
