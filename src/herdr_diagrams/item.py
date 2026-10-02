@@ -260,3 +260,51 @@ def list_items(pane: str | None) -> list[Item]:
 
 def remove_pane(pane: str | None) -> None:
     shutil.rmtree(spool_dir(pane), ignore_errors=True)
+
+
+def archive_root() -> Path:
+    return home() / "archive"
+
+
+def archive(files: list[Path], pane: str | None, reason: str) -> Path | None:
+    """Move Item files out of the live spool. `gc` deletes archives after its cutoff."""
+    files = [f for f in files if f.exists()]
+    if not files:
+        return None
+    target = archive_root() / scope(pane) / f"{time.strftime('%Y%m%d-%H%M%S')}-{reason}"
+    target.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        os.replace(file, target / file.name)
+    return target
+
+
+def archive_pane(pane: str | None, reason: str) -> Path | None:
+    """Archive every Item of a pane and remove its spool directory."""
+    directory = spool_dir(pane)
+    moved = archive(sorted(directory.glob("*.json")), pane, reason) if directory.is_dir() else None
+    remove_pane(pane)
+    return moved
+
+
+def archive_other_sessions(pane: str | None, session: str) -> Path | None:
+    """Archive a pane's Items from earlier agent sessions; keep the current session's."""
+    stale = [it.file for it in list_items(pane)
+             if it.file and it.origin.get("session") not in (None, session)]
+    return archive(stale, pane, "previous-session")
+
+
+def move_pane(old: str, new: str) -> None:
+    """Follow a pane that herdr moved and gave a new ID."""
+    source, target = spool_dir(old), spool_dir(new)
+    if not source.is_dir():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    for file in source.glob("*.json"):
+        os.replace(file, target / file.name)
+    remove_pane(old)
+
+
+def pane_ids_with_items() -> list[str]:
+    """Pane keys (not IDs) with a spool directory in this herdr session."""
+    root = spool_root() / herdr_session()
+    return sorted(d.name for d in root.iterdir() if d.is_dir()) if root.is_dir() else []

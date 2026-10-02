@@ -37,6 +37,14 @@ flowchart LR
 
 ![Scroll sync: the chat scrolled back to the checkout answer shows the sequence diagram (top); back at the bottom it shows the newest, the ER diagram (bottom)](docs/screenshots/scroll-sync.png)
 
+## Platforms
+
+| Platform | Status |
+|---|---|
+| Linux | Tested: Ghostty 1.3 + herdr 0.9.3 on Arch, all formats, Claude Code, opencode and Copilot CLI skill discovery |
+| macOS | Supported, not yet tested on a Mac. Uses only POSIX APIs available there; uses `open`, `pbcopy`, `sips` and Chrome from `/Applications` where Linux uses `xdg-open`, `wl-copy`, ImageMagick and Chromium. If `python3` is Apple's 3.9, the command switches to a newer Python on `PATH` or from Homebrew. CI runs the tests on macOS. |
+| Windows | Not supported yet. See [ADR-0010](docs/adr/0010-platform-support.md) for what is missing. |
+
 ## Requirements
 
 - Herdr 0.9.3 or later, with `[terminal] kitty_graphics = true` (the default)
@@ -116,7 +124,9 @@ Nothing was queued. Fix the diagram and run show again.
 
 | Key | Action |
 |---|---|
-| `j` / `k` | Next / previous diagram |
+| `j` / `k` | Next / previous diagram (pauses scroll sync) |
+| `i` | List of all diagrams of this pane; `Enter` shows one, `e` exports it |
+| `e` / `E` | Export this diagram / all diagrams (PNG, SVG and source) |
 | `h` / `l` | Previous / next view of a Structurizr workspace |
 | `+` / `-` / `0` | Zoom in / out / fit |
 | arrows | Pan when zoomed |
@@ -124,7 +134,7 @@ Nothing was queued. Fix the diagram and run show again.
 | `o` | Open the image in your default viewer |
 | `y` | Copy the image path |
 | `r` | Follow the newest diagram again |
-| `t` | Turn scroll sync off or on |
+| `t` | Resume scroll sync after manual navigation, or turn it off and on |
 | `q` | Close the viewer |
 
 New diagrams take over the viewer until you move away from the newest; after that the
@@ -133,8 +143,35 @@ header counts them (`+2 new (r)`) instead.
 **Scroll sync** (`⇅` in the header): about once a second the viewer reads the text visible
 in the agent's pane. It looks for the `[diagram: <title>]` line the skill asks agents to
 write next to each diagram, or for the diagram's own source lines when the agent printed
-the diagram in its answer. The bottom-most match wins. Pressing `j`/`k` overrides it for
-8 seconds.
+the diagram in its answer. The bottom-most match wins. Navigating yourself (`j`, `k`, `g`, the
+list) pauses sync (`⇅ paused`) until you press `t` or `r`.
+
+### Export
+
+`e` in the viewer, or `herdr-diagram export` from a shell, writes each diagram as PNG, SVG
+and its source file (`.mmd`, `.puml`, `.dsl`, `.d2`, `.dot`), in the light theme, to
+`diagrams/` in the agent's working directory:
+
+```sh
+herdr-diagram export                     # newest diagram of this pane
+herdr-diagram export --all --svg         # every diagram, SVG only
+herdr-diagram export -n 2 -d docs/img    # second newest, into docs/img
+herdr-diagram export --all --archived    # include diagrams of earlier sessions
+```
+
+Existing files with the same content are left alone; a different file with the same name
+gets a `-2` suffix.
+
+### Cleanup
+
+Diagrams are archived, not deleted, and `gc` deletes archives after 7 days:
+
+| When | What happens |
+|---|---|
+| A new agent session starts in a pane | Diagrams of earlier sessions in that pane are archived; the viewer shows the new session only |
+| A pane closes | Its viewer closes; its diagrams are archived |
+| A pane moves to another tab or space | Its diagrams move with it |
+| herdr starts (plugin startup) | Diagrams of panes that no longer exist are archived; `gc` runs (7 days) |
 
 ### Commands
 
@@ -142,11 +179,12 @@ the diagram in its answer. The bottom-most match wins. Pressing `j`/`k` override
 herdr-diagram show [FILE|-]      queue a diagram or image for the viewer beside this pane
 herdr-diagram list               diagrams shown from this pane
 herdr-diagram render FILE -o X   render to a PNG file, no viewer
+herdr-diagram export             write PNG, SVG and source files (see Export)
 herdr-diagram open               open the viewer beside this pane
 herdr-diagram doctor             check herdr, graphics, renderers and links
 herdr-diagram install-skill      link skill and CLI (--status, --uninstall)
 herdr-diagram install-hook claude
-herdr-diagram gc                 delete diagrams and images older than 7 days
+herdr-diagram gc                 delete diagrams, archives and images older than 7 days
 ```
 
 ## Configure
@@ -156,6 +194,9 @@ Files live in the plugin config dir (`herdr plugin config-dir herdr-diagrams`):
 - `config.toml`:
   - `theme = "dark"` (default) or `"light"`. `HERDR_DIAGRAMS_THEME` overrides it.
   - `scroll_sync = true` (default) or `false`.
+  - `export_dir = "{cwd}/diagrams"` (default); `{cwd}` is the agent's working directory,
+    `{home}` your home directory.
+  - `export_theme = "light"` (default) or `"dark"`.
 - `renderers.toml`: override a bundled renderer or add one. Example, a self-hosted
   [Kroki](https://kroki.io) for BPMN:
 
@@ -168,8 +209,8 @@ Files live in the plugin config dir (`herdr plugin config-dir herdr-diagrams`):
   ```
 
 State lives in `~/.local/state/herdr-diagrams` (`HERDR_DIAGRAMS_HOME` overrides it):
-diagrams per herdr session and pane under `spool/<session>/<pane>/`, rendered images in
-`cache/`. Closing a pane removes its diagrams.
+diagrams per herdr session and pane under `spool/<session>/<pane>/`, archived ones under
+`archive/`, rendered images in `cache/`, the last 50 herdr events in `events.log`.
 
 ## Security
 

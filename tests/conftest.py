@@ -16,7 +16,8 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("HERDR_DIAGRAMS_NO_OPEN", "1")
     monkeypatch.setenv("HERDR_BIN_PATH", "/nonexistent/herdr")
     for key in ("HERDR_PANE_ID", "HERDR_DIAGRAMS_THEME", "HERDR_DIAGRAMS_BIND", "HERDR_SESSION",
-                "HERDR_SOCKET_PATH", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_HOME",
+                "HERDR_SOCKET_PATH", "CLAUDE_CONFIG_DIR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
+                "CODEX_HOME",
                 "CODEX_SANDBOX", "OPENCODE", "OPENCODE_BIN_PATH", "AGY_SESSION_ID", "COPILOT_CLI"):
         monkeypatch.delenv(key, raising=False)
     return tmp_path

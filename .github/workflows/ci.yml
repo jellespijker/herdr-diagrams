@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -17,12 +21,19 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - name: Renderers
+      - name: Renderers (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y graphviz librsvg2-bin
           curl -fsSL https://d2lang.com/install.sh | sh -s --
-          sh scripts/build.sh
+
+      - name: Renderers (macOS)
+        if: runner.os == 'macOS'
+        run: brew install graphviz d2 plantuml librsvg
+
+      - name: Mermaid
+        run: sh scripts/build.sh
 
       - name: Lint
         run: |

@@ -210,6 +210,7 @@ then = "plantuml"
 | `timeout` | Seconds, default 30. |
 | `env` | Extra environment, for example `PLANTUML_LIMIT_SIZE`. |
 | `themes.<name>` | Extra args appended for the configured theme (`dark`, `light`). |
+| `svg_argv` | Command for SVG output, used by `export`. Without it, the format exports PNG and source only. |
 
 ### 6.3 Rendering
 
@@ -253,6 +254,7 @@ herdr-diagram install-skill [--harness H ...] [--uninstall] [--status]
 herdr-diagram install-hook claude [--settings FILE] [--uninstall]
 herdr-diagram hook claude-stop
 herdr-diagram event
+herdr-diagram export [--pane P] [--all | -n N] [--archived] [-d DIR] [--theme T] [--png] [--svg] [--src]
 herdr-diagram gc [--older-than 7d]
 ```
 
@@ -267,8 +269,9 @@ herdr-diagram gc [--older-than 7d]
 | `install-skill` | §10. |
 | `install-hook` | Add or remove the Claude Code `Stop` hook in `~/.claude/settings.json` (§9.2). Idempotent; keeps other hooks; writes a `.bak-herdr-diagrams` backup. |
 | `hook` | Harness hook entry point. Always exits 0 and prints nothing; errors go to `hook-errors.log` in the home. |
-| `event` | Plugin event handler. On `pane.closed`: close that pane's viewer, drop its spool. |
-| `gc` | Delete Items and artifacts older than the cutoff and empty spool dirs. |
+| `export` | Write the newest Item (or `-n`, or `--all`) as PNG, SVG and source into `export_dir` (default `{cwd}/diagrams`, light theme). Uses `svg_argv` from the registry for SVG. Same-content files are kept; different files get `-2`. |
+| `event` | Plugin event and startup handler; see [ADR-0009](adr/0009-archive-on-lifecycle-events.md). |
+| `gc` | Delete spool, archive and cache files older than the cutoff, then empty directories. Also run at plugin startup with 7 days. |
 
 Exit codes: 0 ok, 1 runtime error (including render errors), 2 usage error, 3 format not detected.
 
@@ -298,7 +301,7 @@ Item whose anchor appears lowest on screen:
 - otherwise at least two distinctive source lines (diagram-type keywords and short lines
   are ignored), which covers diagrams printed in the answer and caught by the Stop hook.
 
-A manual `j`/`k`/`g`/`G`/`r` choice wins for 8 seconds. `t` toggles sync; `scroll_sync = false`
+Manual navigation (`j`, `k`, `g`, the list) pauses sync until `t` or `r`. `t` also toggles sync; `scroll_sync = false`
 in `config.toml` turns it off. The same thread checks every 5 s whether the source pane
 still exists; only an explicit `pane_not_found` from herdr stops the viewer.
 
@@ -313,8 +316,10 @@ still exists; only an explicit `pane_not_found` from herdr stops the viewer.
 | `s` | Toggle source text |
 | `o` | Open the artifact with `xdg-open` (macOS: `open`) |
 | `y` | Copy artifact path to the clipboard |
-| `r` / `G` | Follow newest |
-| `t` | Toggle scroll sync |
+| `r` / `G` | Follow newest (and resume sync) |
+| `t` | Resume or toggle scroll sync |
+| `i` | List of all Items; `Enter` show, `e` export, `Esc` close |
+| `e` / `E` | Export this Item / all Items |
 | `g` | First Item |
 | `q` | Quit |
 
@@ -390,12 +395,14 @@ symlinks that point into this plugin.
 ```toml
 id = "herdr-diagrams"
 min_herdr_version = "0.9.3"
-platforms = ["linux", "macos"]
+platforms = ["linux", "macos"]   # ADR-0010
 
 [[build]]    # scripts/build.sh: npm ci + chrome-headless-shell
 [[actions]]  # open, install-skill, uninstall-skill, doctor, gc
 [[panes]]    # viewer (split): bin/herdr-diagram view
-[[events]]   # pane.closed -> bin/herdr-diagram event
+[[events]]   # pane.closed, pane.moved, pane.agent_detected -> bin/herdr-diagram event
+[[startup]]  # bin/herdr-diagram event: prune panes that are gone, gc
+[[panes]]    # doctor, install-skill, uninstall-skill (popup)
 ```
 
 The `open` action and `show` both call `herdr plugin pane open --entrypoint viewer

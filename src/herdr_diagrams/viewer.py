@@ -25,11 +25,10 @@ from . import display, herdr, item, render, sync, viewers
 POLL_SPOOL = 0.4
 POLL_PANE = 5.0
 POLL_SYNC = 1.0
-MANUAL_HOLD = 8.0  # seconds that a manual j/k choice beats scroll sync
 IMAGE_ID_BASE = 4200
 
-KEYS_HELP = ["j/k item", "h/l view", "s source", "o open", "+/- zoom", "0 fit", "arrows pan",
-             "t sync scroll", "y copy path", "r follow", "q quit"]
+KEYS_HELP = ["j/k item", "i list", "e export", "h/l view", "s source", "o open", "+/- zoom",
+             "0 fit", "arrows pan", "t sync", "E export all", "y copy path", "r follow", "q quit"]
 
 ARROWS = {b"\x1b[A": "up", b"\x1b[B": "down", b"\x1b[C": "right", b"\x1b[D": "left",
           b"\x1bOA": "up", b"\x1bOB": "down", b"\x1bOC": "right", b"\x1bOD": "left"}
@@ -66,7 +65,9 @@ class Viewer:
         self.flash_until = 0.0
         self.running = True
         self.sync = bool(render.load_settings().get("scroll_sync", True)) and bool(bind)
-        self.manual_until = 0.0
+        self.sync_paused = False  # manual navigation pauses sync until t or r
+        self.show_list = False
+        self.list_cursor = 0
         self.last_visible = None
         self.sync_target: int | None = None
 
@@ -178,7 +179,7 @@ class Viewer:
             left += f" · {it.display_title}"
         right = f"+{self.unseen} new (r) " if self.unseen else ("following " if self.follow else "pinned ")
         if self.sync:
-            right = "⇅ " + right
+            right = ("⇅ paused " if self.sync_paused else "⇅ ") + right
         if self.zoom != 1.0:
             right = f"{self.zoom:.1f}x · " + right
         room = max(0, cols - len(right) - 1)
@@ -221,11 +222,29 @@ class Viewer:
                 "herdr-diagram show diagram.mmd",
                 "echo 'flowchart LR; A-->B' | herdr-diagram show -",
             ], cols, rows))
+        elif self.show_list:
+            out.append(self.list_view(cols, rows))
         elif self.show_source:
             out.append(self.source_view(it, cols, rows))
         else:
             out.append(self.image_view(it, cols, rows))
         self.write("".join(out))
+
+    def list_view(self, cols: int, rows: int) -> str:
+        """All diagrams of the pane, newest first; the cursor row is highlighted."""
+        out = ["\x1b[2;2H" + _style("Diagrams  (j/k move · Enter show · e export · i/Esc close)", "1")]
+        body = rows - 4
+        order = list(range(len(self.items) - 1, -1, -1))
+        pos = order.index(self.list_cursor) if self.list_cursor in order else 0
+        start = max(0, min(pos - body // 2, len(order) - body))
+        for row, index in enumerate(order[start:start + body]):
+            it = self.items[index]
+            stamp = time.strftime("%H:%M", time.localtime(it.created))
+            mark = "▸" if index == self.index else " "
+            line = f"{mark} {index + 1:>3}  {stamp}  {it.format:<11} {it.display_title}"[: cols - 3]
+            code = "7" if index == self.list_cursor else "0"
+            out.append(f"\x1b[{row + 4};2H" + _style(line.ljust(cols - 3), code))
+        return "".join(out)
 
     def source_view(self, it: item.Item, cols: int, rows: int) -> str:
         if it.source is not None:
@@ -288,7 +307,7 @@ class Viewer:
     # --- input ----------------------------------------------------------------
 
     def notify(self, text: str) -> None:
-        self.flash, self.flash_until = text, time.time() + 3
+        self.flash, self.flash_until = text, time.time() + 6
         self.dirty = True
 
     def artifact(self) -> Path | None:
@@ -326,8 +345,12 @@ class Viewer:
     def handle(self, key: str) -> None:
         result = self.results.get(self.current.id) if self.current else None
         views = len(result.artifacts) if result and result.ok else 1
-        if key in ("j", "k", "g", "G", "r", "up", "down") and not (key in ("up", "down") and self.zoom > 1):
-            self.manual_until = time.time() + MANUAL_HOLD
+        if self.show_list:
+            self.handle_list(key)
+            self.dirty = True
+            return
+        if key in ("j", "k", "g", "up", "down") and not (key in ("up", "down") and self.zoom > 1):
+            self.sync_paused = self.sync  # the user navigates on their own now
         if key == "q":
             self.running = False
         elif key == "j" or (key == "down" and self.zoom == 1.0):
@@ -355,15 +378,27 @@ class Viewer:
         elif key == "s":
             self.show_source = not self.show_source
         elif key == "t":
-            self.sync = not self.sync and bool(self.bind)
+            if self.sync and self.sync_paused:
+                self.sync_paused = False
+            else:
+                self.sync = not self.sync and bool(self.bind)
             self.last_visible = None
-            self.notify("scroll sync on: the viewer follows the chat" if self.sync else "scroll sync off")
+            self.notify("scroll sync on: the viewer follows the chat" if self.sync and not self.sync_paused
+                        else "scroll sync off")
+        elif key == "i":
+            self.show_list = bool(self.items)
+            self.list_cursor = max(0, self.index)
+        elif key == "e":
+            self.export([self.current] if self.current else [])
+        elif key == "E":
+            self.export(list(self.items))
         elif key == "o":
             self.open_external()
         elif key == "y":
             self.copy_path()
         elif key == "r":
-            self.follow = True
+            self.follow, self.sync_paused = True, False
+            self.last_visible = None
             self.select(len(self.items) - 1)
         elif key == "g":
             self.follow = False
@@ -372,6 +407,45 @@ class Viewer:
             self.follow = True
             self.select(len(self.items) - 1)
         self.dirty = True
+
+    def handle_list(self, key: str) -> None:
+        if key in ("j", "down"):
+            self.list_cursor = max(0, self.list_cursor - 1)  # the list shows newest first
+        elif key in ("k", "up"):
+            self.list_cursor = min(len(self.items) - 1, self.list_cursor + 1)
+        elif key in ("\r", "\n", "l", "right"):
+            self.show_list = False
+            self.sync_paused = self.sync
+            self.follow = self.list_cursor == len(self.items) - 1
+            self.select(self.list_cursor)
+        elif key in ("i", "q", "esc", "h", "left"):
+            self.show_list = False
+        elif key == "e" and 0 <= self.list_cursor < len(self.items):
+            self.export([self.items[self.list_cursor]])
+
+    def export(self, items: list[item.Item]) -> None:
+        """Export in the background; report the result in the footer."""
+        if not items:
+            self.notify("nothing to export")
+            return
+        self.notify(f"exporting {len(items)} diagram(s)…")
+
+        def run() -> None:
+            settings = render.load_settings()
+            files, problems, target = [], [], None
+            for it in items:
+                target = render.export_dir(it)
+                written, failed = render.export(it, target, registry=self.registry,
+                                                theme=settings["export_theme"])
+                files += written
+                problems += failed
+            text = f"exported {len(files)} files to {target}"
+            if problems:
+                text += f" · {len(problems)} failed: {item.clean_text(problems[0])}"
+            self.notify(text)
+            self.wake()
+
+        threading.Thread(target=run, daemon=True).start()
 
     def read_keys(self) -> list[str]:
         try:
@@ -388,6 +462,10 @@ class Viewer:
             if seq in ARROWS:
                 keys.append(ARROWS[seq])
                 i += 3
+                continue
+            if data[i] == 0x1B and i + 1 == len(data):
+                keys.append("esc")
+                i += 1
                 continue
             if data[i] == 0x1B:  # other escape sequence: skip it whole
                 j = i + 1
@@ -413,7 +491,7 @@ class Viewer:
         last_pane_check = 0.0
         while self.running:
             time.sleep(POLL_SYNC)
-            if self.sync and self.items and time.time() >= self.manual_until:
+            if self.sync and not self.sync_paused and self.items:
                 visible = herdr.read_visible(self.bind)
                 if visible is not None and visible != self.last_visible:
                     self.last_visible = visible
@@ -429,7 +507,7 @@ class Viewer:
 
     def apply_sync(self) -> None:
         target, self.sync_target = self.sync_target, None
-        if target is None or not self.sync or time.time() < self.manual_until:
+        if target is None or not self.sync or self.sync_paused:
             return
         if 0 <= target < len(self.items) and target != self.index:
             self.follow = target == len(self.items) - 1

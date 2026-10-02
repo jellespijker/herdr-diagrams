@@ -1,10 +1,22 @@
 #!/usr/bin/env python3
 """herdr-diagram: show diagrams from coding agents in a herdr pane."""
 import os
+import shutil
 import sys
 
-if sys.version_info < (3, 11):
-    sys.exit("herdr-diagram needs Python 3.11 or later")
+if sys.version_info < (3, 11):  # noqa: UP036 - runs on old interpreters on purpose
+    # macOS ships Python 3.9 as /usr/bin/python3; look for a newer one before giving up.
+    candidates = [shutil.which(f"python3.{minor}") for minor in range(20, 10, -1)]
+    candidates += ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"]
+    for candidate in candidates:
+        if not candidate or not os.access(candidate, os.X_OK):
+            continue
+        if os.path.realpath(candidate) == os.path.realpath(sys.executable):
+            continue
+        check = os.popen(f'"{candidate}" -c "import sys; print(sys.version_info >= (3, 11))"').read()
+        if check.strip() == "True":
+            os.execv(candidate, [candidate, os.path.realpath(__file__), *sys.argv[1:]])
+    sys.exit("herdr-diagram needs Python 3.11 or later (for example: brew install python)")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "src"))
 

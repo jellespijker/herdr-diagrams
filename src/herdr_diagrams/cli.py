@@ -156,6 +156,45 @@ def cmd_render(args) -> int:
     return 0
 
 
+def cmd_export(args) -> int:
+    items = item.list_items(current_pane(args.pane))
+    if args.archived:
+        items = archived_items(current_pane(args.pane)) + items
+    if not items:
+        print("herdr-diagram export: no diagrams for this pane", file=sys.stderr)
+        return EXIT_RUNTIME
+    if args.all:
+        chosen = items
+    else:
+        try:
+            chosen = [items[-args.index if args.index else -1]]
+        except IndexError:
+            print(f"herdr-diagram export: there are only {len(items)} diagrams", file=sys.stderr)
+            return EXIT_USAGE
+    kinds = tuple(k for k in ("png", "svg", "src") if getattr(args, k)) or ("png", "svg", "src")
+    theme = args.theme or render.load_settings()["export_theme"]
+    status = 0
+    for it in chosen:
+        written, problems = render.export(it, render.export_dir(it, args.dir), theme=theme, kinds=kinds)
+        for path in written:
+            print(path)
+        for problem in problems:
+            print(f"herdr-diagram export: {it.display_title}: {item.clean_text(problem)}", file=sys.stderr)
+            status = EXIT_RUNTIME
+    return status
+
+
+def archived_items(pane: str | None) -> list[item.Item]:
+    root = item.archive_root() / item.scope(pane)
+    found = []
+    for file in sorted(root.rglob("*.json")) if root.is_dir() else []:
+        try:
+            found.append(item.read(file))
+        except (OSError, ValueError):
+            continue
+    return sorted(found, key=lambda it: it.id)
+
+
 def cmd_view(args) -> int:
     from . import viewer  # termios-heavy; import only when needed
 
@@ -199,6 +238,11 @@ def cmd_doctor(args) -> int:
         print(f"  {'✓' if good else '✗'} {label:<22} {value}")
 
     print(f"herdr-diagrams {version()}  ({render.ROOT})")
+    print("system")
+    line("platform", f"{sys.platform}, Python {sys.version.split()[0]}", sys.platform != "win32")
+    local_bin = str(Path.home() / ".local" / "bin")
+    on_path = local_bin in os.environ.get("PATH", "").split(os.pathsep)
+    line("~/.local/bin on PATH", "yes" if on_path else f"no: add {local_bin} to PATH for agents", on_path)
     exe = herdr.binary()
     herdr_version = ""
     if exe:
@@ -290,8 +334,8 @@ def cmd_hook(args) -> int:
 def cmd_install_hook(args) -> int:
     from .harness import claude
 
-    settings = Path(args.settings).expanduser() if args.settings else \
-        Path.home() / ".claude" / "settings.json"
+    claude_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    settings = Path(args.settings).expanduser() if args.settings else claude_dir / "settings.json"
     cli_link = Path.home() / ".local" / "bin" / "herdr-diagram"
     if cli_link.is_symlink() and cli_link.resolve() == skill.CLI_SRC.resolve():
         command = f"{cli_link} hook claude-stop"
@@ -305,22 +349,79 @@ def cmd_install_hook(args) -> int:
     return 0
 
 
+def _log_event(event: str, raw: str, keep: int = 50) -> None:
+    """Keep the last few event payloads, for debugging herdr integration."""
+    log = item.home() / "events.log"
+    try:
+        lines = log.read_text().splitlines()[-(keep - 1):] if log.exists() else []
+        lines.append(json.dumps({"t": int(time.time()), "event": event, "payload": raw[:2000]}))
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("\n".join(lines) + "\n")
+    except OSError:
+        pass
+
+
 def cmd_event(args) -> int:
-    """Plugin event handler: clean up when a pane closes."""
+    """Plugin event and startup handler: keep the spool in step with herdr's panes."""
     event = os.environ.get("HERDR_PLUGIN_EVENT", "")
-    payload = json.loads(os.environ.get("HERDR_PLUGIN_EVENT_JSON") or "{}")
-    if event != "pane.closed":
+    raw = os.environ.get("HERDR_PLUGIN_EVENT_JSON") or "{}"
+    _log_event(event, raw)
+    try:
+        data = json.loads(raw)
+    except ValueError:
         return 0
-    data = payload.get("data", payload)
-    pane = data.get("pane_id") or (data.get("pane") or {}).get("pane_id")
-    if not pane:
-        return 0
+    data = data.get("data", data) if isinstance(data, dict) else {}
+    if event == "startup":
+        prune_missing_panes()
+        gc(time.time() - _parse_age("7d"))
+    elif event == "pane.closed":
+        pane = data.get("pane_id") or (data.get("pane") or {}).get("pane_id")
+        if pane:
+            close_viewer_of(pane)
+            item.archive_pane(pane, "pane-closed")
+    elif event == "pane.moved":
+        old, new = data.get("previous_pane_id"), (data.get("pane") or {}).get("pane_id")
+        if old and new and old != new:
+            close_viewer_of(old)  # it is bound to the old ID; `show` opens a new one
+            item.move_pane(old, new)
+    elif event == "pane.agent_detected":
+        pane = data.get("pane_id")
+        if pane:
+            archive_previous_sessions(pane)
+    return 0
+
+
+def close_viewer_of(pane: str) -> None:
     bound = viewers.lookup(pane)
     if bound and bound.get("viewer_pane"):
         herdr.close_pane(bound["viewer_pane"])
     viewers.forget(pane)
-    item.remove_pane(pane)
-    return 0
+
+
+def archive_previous_sessions(pane: str, attempts: int = 10) -> None:
+    """A new agent session started in `pane`: archive diagrams of earlier sessions.
+
+    herdr reports the agent before its session ID, so wait for the ID briefly.
+    """
+    for _ in range(attempts):
+        session = ((herdr.pane(pane) or {}).get("agent_session") or {}).get("value")
+        if session:
+            item.archive_other_sessions(pane, session)
+            return
+        time.sleep(1)
+
+
+def prune_missing_panes() -> None:
+    """After a herdr restart, archive diagrams of panes that no longer exist."""
+    listing = herdr.call("pane", "list")
+    if listing is None:
+        return
+    alive = {item.pane_key(p.get("pane_id")) for p in listing.get("panes", [])}
+    for key in item.pane_ids_with_items():
+        if key not in alive and key != item.NOPANE:
+            pane = key.replace("_", ":", 1)
+            viewers.forget(pane)
+            item.archive_pane(pane, "pane-gone")
 
 
 def _parse_age(text: str) -> float:
@@ -330,26 +431,33 @@ def _parse_age(text: str) -> float:
     return float(text)
 
 
+def gc(cutoff: float) -> int:
+    """Delete spool, archive and cache files older than `cutoff`; drop empty directories."""
+    removed = 0
+    roots = (item.spool_root(), item.archive_root(), item.cache_dir())
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for file in root.rglob("*"):
+            if file.is_file() and file.stat().st_mtime < cutoff:
+                file.unlink()
+                removed += 1
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for directory in sorted((d for d in root.rglob("*") if d.is_dir()), reverse=True):
+            if not any(directory.iterdir()):
+                directory.rmdir()
+    return removed
+
+
 def cmd_gc(args) -> int:
     try:
         cutoff = time.time() - _parse_age(args.older_than)
     except ValueError:
         print(f"herdr-diagram gc: bad age {args.older_than!r}; use e.g. 7d, 12h, 30m", file=sys.stderr)
         return EXIT_USAGE
-    removed = 0
-    for directory in (item.spool_root(), item.cache_dir()):
-        if not directory.is_dir():
-            continue
-        for file in directory.rglob("*"):
-            if file.is_file() and file.stat().st_mtime < cutoff:
-                file.unlink()
-                removed += 1
-    for root in (item.spool_root(), item.cache_dir()):
-        for directory in sorted((d for d in root.rglob("*") if d.is_dir()), reverse=True) \
-                if root.is_dir() else []:
-            if not any(directory.iterdir()):
-                directory.rmdir()
-    print(f"removed {removed} files older than {args.older_than}")
+    print(f"removed {gc(cutoff)} files older than {args.older_than}")
     return 0
 
 
@@ -383,6 +491,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-f", "--format")
     p.add_argument("--theme", choices=["dark", "light"], default="light")
     p.set_defaults(func=cmd_render)
+
+    p = sub.add_parser("export", help="write diagrams as PNG, SVG and source files")
+    p.add_argument("--pane")
+    p.add_argument("--all", action="store_true", help="every diagram of the pane, not only the newest")
+    p.add_argument("-n", "--index", type=int, help="the n-th newest diagram (1 = newest)")
+    p.add_argument("--archived", action="store_true", help="include archived diagrams of the pane")
+    p.add_argument("-d", "--dir", help="target directory (default: config export_dir, {cwd}/diagrams)")
+    p.add_argument("--theme", choices=["light", "dark"], help="default: config export_theme, light")
+    for kind in ("png", "svg", "src"):
+        p.add_argument(f"--{kind}", action="store_true", help=f"only {kind} (combinable)")
+    p.set_defaults(func=cmd_export)
 
     p = sub.add_parser("open", help="open the viewer beside a pane")
     p.add_argument("--pane")

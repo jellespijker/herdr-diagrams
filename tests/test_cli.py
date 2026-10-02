@@ -128,3 +128,48 @@ def test_pending_viewer_claim(monkeypatch):
     monkeypatch.setattr(viewers, "PENDING_SECONDS", -1)
     viewers.mark_pending("w1:p1")
     assert viewers.lookup("w1:p1") is None
+
+
+def event(name, payload):
+    return run("event", env={"HERDR_PLUGIN_EVENT": name, "HERDR_PLUGIN_EVENT_JSON": json.dumps(payload)})
+
+
+def test_event_pane_moved_follows_the_pane():
+    item.write(item.new("d2", source="a -> b", pane="w1:pD"))
+    payload = {"event": "pane_moved", "data": {"previous_pane_id": "w1:pD", "pane": {"pane_id": "w3:p2"}}}
+    assert event("pane.moved", payload).returncode == 0
+    assert item.list_items("w1:pD") == [] and len(item.list_items("w3:p2")) == 1
+
+
+def test_event_pane_closed_archives(tmp_path):
+    item.write(item.new("d2", source="a -> b", pane="w1:p9"))
+    event("pane.closed", {"data": {"pane_id": "w1:p9"}})
+    assert item.list_items("w1:p9") == []
+    assert list((tmp_path / "home" / "archive").rglob("*.json"))
+
+
+def test_startup_without_herdr_is_harmless():
+    item.write(item.new("d2", source="a -> b", pane="w1:p1"))
+    assert event("startup", {}).returncode == 0
+    assert len(item.list_items("w1:p1")) == 1  # herdr unknown: nothing pruned
+
+
+@needs("dot")
+def test_export_writes_png_svg_and_source(tmp_path):
+    item.write(item.new("graphviz", source=(FIXTURES / "sample.dot").read_text(), title="Pipe line",
+                        pane="w1:p1", cwd=str(tmp_path)))
+    proc = run("export", env={"HERDR_PANE_ID": "w1:p1"})
+    assert proc.returncode == 0, proc.stderr
+    names = sorted(p.name for p in (tmp_path / "diagrams").iterdir())
+    assert names == ["pipe-line.dot", "pipe-line.png", "pipe-line.svg"]
+    run("export", env={"HERDR_PANE_ID": "w1:p1"})  # same content: no -2 copies
+    assert len(list((tmp_path / "diagrams").iterdir())) == 3
+    out = tmp_path / "only-svg"
+    assert run("export", "--svg", "-d", str(out), env={"HERDR_PANE_ID": "w1:p1"}).returncode == 0
+    assert [p.name for p in out.iterdir()] == ["pipe-line.svg"]
+
+
+def test_export_without_items_and_bad_index():
+    assert run("export", env={"HERDR_PANE_ID": "w1:p1"}).returncode == 1
+    item.write(item.new("d2", source="a -> b", pane="w1:p1"))
+    assert run("export", "-n", "5", env={"HERDR_PANE_ID": "w1:p1"}).returncode == 2

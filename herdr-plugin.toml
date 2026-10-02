@@ -79,3 +79,14 @@ command = ["bin/herdr-diagram", "install-skill", "--uninstall", "--wait"]
 [[events]]
 on = "pane.closed"
 command = ["bin/herdr-diagram", "event"]
+
+[[events]]
+on = "pane.moved"
+command = ["bin/herdr-diagram", "event"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["bin/herdr-diagram", "event"]
+
+[[startup]]
+command = ["bin/herdr-diagram", "event"]

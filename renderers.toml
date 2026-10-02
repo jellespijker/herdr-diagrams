@@ -6,6 +6,7 @@
 #
 # argv placeholders: {in} input file, {out} output file, {outdir} scratch dir,
 # {root} plugin root, {cwd} the Item's origin cwd. No shell is involved.
+# svg_argv is the command for SVG output, used by `export`.
 # themes.<name> lists extra args appended for the configured theme (dark | light).
 # reject lists regular expressions (multiline); a source that matches is not rendered,
 # because the construct can run code or reach the network. Sources come from agents.
@@ -14,6 +15,8 @@
 detect = ["mermaid", "mmd"]
 argv = ["{root}/node_modules/.bin/mmdc", "-q", "-i", "{in}", "-o", "{out}",
         "-s", "2", "-w", "1200", "-p", "{root}/puppeteer.json"]
+svg_argv = ["{root}/node_modules/.bin/mmdc", "-q", "-i", "{in}", "-o", "{out}",
+            "-p", "{root}/puppeteer.json"]
 in_ext = "mmd"
 out = "png"
 themes.dark = ["-c", "{root}/mermaid-dark.json", "-b", "transparent"]
@@ -22,6 +25,7 @@ themes.light = ["-c", "{root}/mermaid-light.json", "-b", "white"]
 [plantuml]
 detect = ["plantuml", "puml", "uml"]
 argv = ["plantuml", "-tpng", "-pipe"]
+svg_argv = ["plantuml", "-tsvg", "-pipe"]
 stdio = true
 out = "png"
 env = { PLANTUML_SECURITY_PROFILE = "SANDBOX", PLANTUML_LIMIT_SIZE = "8192" }
@@ -31,6 +35,7 @@ timeout = 60
 [d2]
 detect = ["d2"]
 argv = ["d2", "--pad", "24", "--scale", "2", "{in}", "{out}"]
+svg_argv = ["d2", "--pad", "24", "{in}", "{out}"]
 in_ext = "d2"
 out = "png"
 themes.dark = ["--theme", "200"]
@@ -42,6 +47,8 @@ reject = ['icon:\s*"?https?://', 'https?://\S+\.(svg|png|jpe?g|gif)']
 detect = ["graphviz", "dot", "gv"]
 argv = ["dot", "-Tpng", "-Gdpi=144", "-Gfontname=Helvetica", "-Nfontname=Helvetica",
         "-Efontname=Helvetica", "-o", "{out}", "{in}"]
+svg_argv = ["dot", "-Tsvg", "-Gfontname=Helvetica", "-Nfontname=Helvetica",
+            "-Efontname=Helvetica", "-o", "{out}", "{in}"]
 in_ext = "dot"
 out = "png"
 themes.dark = ["-Gbgcolor=transparent", "-Gfontcolor=#e6e6e6", "-Ncolor=#e6e6e6",

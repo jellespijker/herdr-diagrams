@@ -30,17 +30,35 @@ DEFAULT_TIMEOUT = 30
 PLACEHOLDERS = ("{in}", "{out}", "{outdir}", "{root}", "{cwd}")
 
 
+_CONFIG_DIR: Path | None = None
+
+
 def config_dir() -> Path:
+    """The plugin config dir: from herdr's env, else asked from herdr, else the XDG default."""
+    global _CONFIG_DIR
     if override := os.environ.get("HERDR_PLUGIN_CONFIG_DIR"):
         return Path(override)
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base) / "herdr" / "plugins" / "config" / "herdr-diagrams"
+    if _CONFIG_DIR is None:
+        exe = os.environ.get("HERDR_BIN_PATH") or shutil.which("herdr")
+        if exe and os.access(exe, os.X_OK):
+            try:
+                proc = subprocess.run([exe, "plugin", "config-dir", "herdr-diagrams"],
+                                      capture_output=True, text=True, timeout=5)
+                if proc.returncode == 0 and proc.stdout.strip().startswith(os.sep):
+                    _CONFIG_DIR = Path(proc.stdout.strip())
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        if _CONFIG_DIR is None:
+            base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+            _CONFIG_DIR = Path(base) / "herdr" / "plugins" / "config" / "herdr-diagrams"
+    return _CONFIG_DIR
 
 
 def load_settings() -> dict:
     """User settings from <config dir>/config.toml. Keys: theme."""
     path = config_dir() / "config.toml"
-    settings = {"theme": "dark"}
+    settings = {"theme": "dark", "scroll_sync": True, "export_dir": "{cwd}/diagrams",
+                "export_theme": "light"}
     if path.is_file():
         try:
             settings.update(tomllib.loads(path.read_text()))
@@ -107,8 +125,13 @@ def availability(registry: dict) -> dict[str, tuple[bool, str]]:
     return result
 
 
-def _argv_for(entry: dict, theme: str) -> list[str]:
-    return list(entry["argv"]) + list(entry.get("themes", {}).get(theme, []))
+def _argv_for(entry: dict, theme: str, svg: bool = False) -> list[str]:
+    base = entry.get("svg_argv") if svg and entry.get("svg_argv") else entry["argv"]
+    return list(base) + list(entry.get("themes", {}).get(theme, []))
+
+
+def supports_svg(entry: dict) -> bool:
+    return bool(entry.get("svg_argv")) or bool(entry.get("fanout"))
 
 
 def _referenced_files(entry, theme: str) -> list[Path]:
@@ -146,6 +169,10 @@ def _chromium_env() -> dict:
     for name in ("chromium", "chromium-browser", "google-chrome-stable", "google-chrome"):
         if found := shutil.which(name):
             return {"PUPPETEER_EXECUTABLE_PATH": found}
+    for app in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium"):
+        if os.access(app, os.X_OK):
+            return {"PUPPETEER_EXECUTABLE_PATH": app}
     return {}
 
 
@@ -163,7 +190,10 @@ def _exec(argv: list[str], *, stdin: bytes | None, cwd: str | None, env: dict | 
         out, err = proc.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            if hasattr(os, "killpg"):
+                os.killpg(proc.pid, signal.SIGKILL)
+            else:  # Windows: no process groups via setsid
+                proc.kill()
         except OSError:
             pass
         proc.communicate()
@@ -171,17 +201,18 @@ def _exec(argv: list[str], *, stdin: bytes | None, cwd: str | None, env: dict | 
     return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 
-def _run(entry: dict, theme: str, source: bytes, workdir: Path, cwd: str | None) -> list[Path]:
+def _run(entry: dict, theme: str, source: bytes, workdir: Path, cwd: str | None,
+         svg: bool = False) -> list[Path]:
     """Run one renderer step. Returns produced files (one, or many for fanout)."""
     in_file = workdir / f"input.{entry.get('in_ext', 'txt')}"
-    out_file = workdir / f"output.{entry.get('out', 'png')}"
+    out_file = workdir / f"output.{'svg' if svg else entry.get('out', 'png')}"
     outdir = workdir / "out"
     outdir.mkdir(exist_ok=True)
     in_file.write_bytes(source)
     values = {"{in}": str(in_file), "{out}": str(out_file), "{outdir}": str(outdir),
               "{root}": str(ROOT), "{cwd}": cwd or str(workdir)}
     argv = []
-    for arg in _argv_for(entry, theme):
+    for arg in _argv_for(entry, theme, svg and not entry.get("fanout")):
         for placeholder in PLACEHOLDERS:
             arg = arg.replace(placeholder, values[placeholder])
         argv.append(arg)
@@ -228,6 +259,8 @@ def _png_from(file: Path, dest: Path) -> None:
     if shutil.which("ffmpeg"):
         candidates.append(["ffmpeg", "-loglevel", "error", "-y", "-i", str(file),
                            "-frames:v", "1", str(dest)])
+    if shutil.which("sips"):  # macOS built-in
+        candidates.append(["sips", "-s", "format", "png", str(file), "--out", str(dest)])
     for argv in candidates:
         if _exec(argv, stdin=None, cwd=None, env=None, timeout=60).returncode == 0 and dest.is_file():
             return
@@ -235,14 +268,17 @@ def _png_from(file: Path, dest: Path) -> None:
                       "Install ImageMagick, librsvg or ffmpeg, or press o to open externally.")
 
 
-def _store(produced: list[Path], key: str) -> list[Path]:
+def _store(produced: list[Path], key: str, ext: str = "png") -> list[Path]:
     cache = item_mod.cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
     artifacts = []
     for index, file in enumerate(produced):
-        dest = cache / (f"{key}.png" if len(produced) == 1 else f"{key}-{index:02d}.png")
-        tmp = dest.with_name(f".{dest.stem}.{os.getpid()}.{threading.get_ident()}.tmp.png")
-        _png_from(file, tmp)
+        dest = cache / (f"{key}.{ext}" if len(produced) == 1 else f"{key}-{index:02d}.{ext}")
+        tmp = dest.with_name(f".{dest.stem}.{os.getpid()}.{threading.get_ident()}.tmp.{ext}")
+        if ext == "png":
+            _png_from(file, tmp)
+        else:
+            shutil.copyfile(file, tmp)
         if tmp.stat().st_size > MAX_ARTIFACT_BYTES:
             tmp.unlink()
             raise RenderError("rendered image exceeds 20 MiB")
@@ -267,7 +303,7 @@ def _cached(key: str) -> list[Path] | None:
 
 
 def render_source(fmt: str, data: bytes, *, registry: dict | None = None,
-                  theme: str | None = None, cwd: str | None = None) -> Result:
+                  theme: str | None = None, cwd: str | None = None, svg: bool = False) -> Result:
     """Render diagram source `data` of registry key `fmt` to cached PNG artifacts."""
     registry = registry if registry is not None else load_registry()
     theme = theme or load_settings()["theme"]
@@ -286,19 +322,21 @@ def render_source(fmt: str, data: bytes, *, registry: dict | None = None,
                           detail="This construct can run code or reach the network, so "
                                  "herdr-diagrams does not render it. Change the "
                                  "reject list in renderers.toml if you trust the source.")
-    key = cache_key(fmt, chain, theme, data)
+    if svg and not supports_svg(chain[-1]):
+        return Result(error=f"{fmt} has no SVG output configured (svg_argv in renderers.toml)")
+    key = cache_key(fmt + (":svg" if svg else ""), chain, theme, data)
     if hit := _cached(key):
         return Result(artifacts=hit, cached=True)
     try:
         with tempfile.TemporaryDirectory(prefix="render-", dir=_scratch()) as tmp:
-            produced = _run(entry, theme, data, _mk(tmp, "s0"), cwd)
+            produced = _run(entry, theme, data, _mk(tmp, "s0"), cwd, svg=svg and len(chain) == 1)
             if len(chain) > 1:
                 finals = []
                 for index, intermediate in enumerate(produced):
                     finals += _run(chain[1], theme, intermediate.read_bytes(),
-                                   _mk(tmp, f"s1-{index}"), cwd)
+                                   _mk(tmp, f"s1-{index}"), cwd, svg=svg)
                 produced = finals
-            return Result(artifacts=_store(produced, key))
+            return Result(artifacts=_store(produced, key, "svg" if svg else "png"))
     except RenderError as exc:
         return Result(error=str(exc), detail=exc.detail)
     except OSError as exc:
@@ -306,7 +344,7 @@ def render_source(fmt: str, data: bytes, *, registry: dict | None = None,
 
 
 def render_item(it: item_mod.Item, *, registry: dict | None = None,
-                theme: str | None = None) -> Result:
+                theme: str | None = None, svg: bool = False) -> Result:
     if it.format == "image":
         if not it.path:
             return Result(error="image items need a path")
@@ -331,7 +369,7 @@ def render_item(it: item_mod.Item, *, registry: dict | None = None,
         except OSError as exc:
             return Result(error=f"cannot read source: {exc}")
     return render_source(it.format, data, registry=registry, theme=theme,
-                         cwd=it.origin.get("cwd"))
+                         cwd=it.origin.get("cwd"), svg=svg)
 
 
 def _scratch() -> str:
@@ -344,3 +382,67 @@ def _mk(tmp: str, name: str) -> Path:
     path = Path(tmp) / name
     path.mkdir()
     return path
+
+
+SOURCE_EXT = {"mermaid": "mmd", "plantuml": "puml", "structurizr": "dsl", "d2": "d2",
+              "graphviz": "dot"}
+
+
+def slug(text: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9]+", "-", text.lower()).strip("-")
+    return text[:60] or "diagram"
+
+
+def _unique(path: Path, content: bytes) -> Path:
+    """`path`, or `path` with -2, -3 ... when a different file already has that name."""
+    candidate, n = path, 1
+    while candidate.exists() and candidate.read_bytes() != content:
+        n += 1
+        candidate = path.with_name(f"{path.stem}-{n}{path.suffix}")
+    return candidate
+
+
+def export(it: item_mod.Item, directory: Path, *, registry: dict | None = None,
+           theme: str = "light",
+           kinds: tuple[str, ...] = ("png", "svg", "src")) -> tuple[list[Path], list[str]]:
+    """Write an Item as PNG, SVG and source files. Returns (written files, problems)."""
+    registry = registry if registry is not None else load_registry()
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = slug(it.display_title)
+    outputs: list[tuple[Path, bytes]] = []
+    problems = []
+    if "src" in kinds:
+        if it.format == "image" and it.path:
+            data = Path(it.path).read_bytes() if Path(it.path).is_file() else b""
+            if data:
+                outputs.append((directory / f"{stem}{Path(it.path).suffix.lower()}", data))
+        elif it.source is not None:
+            outputs.append((directory / f"{stem}.{SOURCE_EXT.get(it.format, 'txt')}", it.source.encode()))
+    for kind in ("png", "svg"):
+        if kind not in kinds or it.format == "image":
+            continue
+        result = render_item(it, registry=registry, theme=theme, svg=kind == "svg")
+        if not result.ok:
+            problems.append(f"{kind}: {result.error}")
+            continue
+        many = len(result.artifacts) > 1
+        for index, artifact in enumerate(result.artifacts):
+            name = f"{stem}-{index + 1}.{kind}" if many else f"{stem}.{kind}"
+            outputs.append((directory / name, artifact.read_bytes()))
+    if it.format == "image" and "png" in kinds:
+        result = render_item(it, registry=registry)
+        if result.ok:
+            outputs.append((directory / f"{stem}.png", result.artifacts[0].read_bytes()))
+    written = []
+    for path, content in outputs:
+        target = _unique(path, content)
+        target.write_bytes(content)
+        written.append(target)
+    return written, problems
+
+
+def export_dir(it: item_mod.Item, override: str | None = None) -> Path:
+    """Where `export` writes: --dir, else config `export_dir` with {cwd} and {home} filled in."""
+    template = override or load_settings()["export_dir"]
+    cwd = it.origin.get("cwd") or os.getcwd()
+    return Path(template.replace("{cwd}", cwd).replace("{home}", str(Path.home()))).expanduser()

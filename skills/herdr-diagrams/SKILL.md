@@ -89,10 +89,15 @@ paths.
 - Shown, but the user sees nothing: ask the user to run `herdr-diagram doctor` and check
   that their terminal supports the Kitty graphics protocol (Ghostty, kitty, WezTerm).
 
+When the user asks to save, commit or embed a diagram you showed, use `export` instead of
+writing the files by hand; it renders in a light theme suitable for documents.
+
 ## Other commands
 
 ```bash
 herdr-diagram list            # diagrams shown from this pane, newest first
+herdr-diagram export --all    # save them as PNG, SVG and source into ./diagrams
+herdr-diagram export -n 1 -d docs/img --svg   # newest one as SVG into docs/img
 herdr-diagram open            # open the viewer pane again if the user closed it
 herdr-diagram doctor          # check herdr, graphics support and renderers
 ```

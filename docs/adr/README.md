@@ -14,3 +14,5 @@ old one and set the old one's status to `Superseded by ADR-NNNN`.
 | [0006](0006-python-stdlib-external-toolchains.md) | Python standard library; renderer toolchains stay external | Accepted |
 | [0007](0007-show-renders-before-queueing.md) | `show` renders before queueing and reports errors to the agent | Accepted |
 | [0008](0008-scroll-sync-by-chat-anchors.md) | Scroll sync by anchors in the visible chat text | Accepted |
+| [0009](0009-archive-on-lifecycle-events.md) | Follow pane and agent lifecycles; archive instead of delete | Accepted |
+| [0010](0010-platform-support.md) | Platform support: Linux and macOS; Windows later | Accepted |

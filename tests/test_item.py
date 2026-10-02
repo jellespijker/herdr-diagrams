@@ -98,3 +98,21 @@ def test_clean_text_strips_terminal_controls():
     assert "\x1b" not in cleaned and "\x07" not in cleaned and "\x9b" not in cleaned
     assert cleaned.endswith("ok\tx\ny")
     assert "\x1b" not in item.Item(format="d2", source="x", title=nasty).display_title
+
+
+def test_archive_other_sessions_keeps_current_and_sessionless():
+    old = item.write(item.new("d2", source="a -> b", pane="w1:p1", session="old"))
+    cur = item.write(item.new("d2", source="b -> c", pane="w1:p1", session="new"))
+    shell = item.write(item.new("d2", source="c -> d", pane="w1:p1"))
+    target = item.archive_other_sessions("w1:p1", "new")
+    assert [it.file.name for it in item.list_items("w1:p1")] == [cur.name, shell.name]
+    assert (target / old.name).is_file() and "previous-session" in target.name
+
+
+def test_archive_pane_and_move_pane():
+    first = item.write(item.new("d2", source="a -> b", pane="w1:p1"))
+    item.move_pane("w1:p1", "w3:p2")
+    assert item.list_items("w1:p1") == [] and item.list_items("w3:p2")[0].id == first.stem
+    target = item.archive_pane("w3:p2", "pane-closed")
+    assert item.list_items("w3:p2") == [] and (target / first.name).is_file()
+    assert item.pane_ids_with_items() == []

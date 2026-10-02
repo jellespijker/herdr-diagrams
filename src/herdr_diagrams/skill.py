@@ -22,7 +22,8 @@ def targets() -> dict[str, tuple[Path, str]]:
     return {
         "agents": (home / ".agents" / "skills" / SKILL_NAME,
                    "Codex, opencode, Copilot CLI, Gemini CLI"),
-        "claude": (home / ".claude" / "skills" / SKILL_NAME, "Claude Code"),
+        "claude": (Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "skills" / SKILL_NAME,
+                   "Claude Code"),
         "agy": (home / ".gemini" / "config" / "skills" / SKILL_NAME, "Antigravity CLI (agy)"),
         "cli": (home / ".local" / "bin" / "herdr-diagram", "the herdr-diagram command"),
     }

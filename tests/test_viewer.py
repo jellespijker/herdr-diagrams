@@ -91,3 +91,23 @@ def test_viewer_registers_and_unregisters():
     assert viewers.lookup("w9:p3")["pid"] == pid
     stop(pid, fd)
     assert viewers.lookup("w9:p3") is None
+
+
+def test_viewer_list_overlay_and_export(tmp_path):
+    pid, fd = spawn_viewer("w9:p4")
+    try:
+        read_until(fd, b"Waiting for diagrams")
+        for name in ("alpha", "beta", "gamma"):
+            item.write(item.new("image", path=str(FIXTURES / "pixel.png"), title=name, pane="w9:p4",
+                                cwd=str(tmp_path)))
+        read_until(fd, b"3/3")
+        os.write(fd, b"i")
+        out = read_until(fd, b"Enter show")
+        assert b"alpha" in out and b"gamma" in out
+        os.write(fd, b"jj\r")
+        read_until(fd, b"1/3")
+        os.write(fd, b"e")
+        read_until(fd, b"exported")
+        assert (tmp_path / "diagrams" / "alpha.png").is_file()
+    finally:
+        stop(pid, fd)
