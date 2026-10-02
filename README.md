@@ -77,6 +77,24 @@ Why the folder is outside the project: diagrams are per pane and per session, mu
 up in commits, and the viewer and daemon (outside any sandbox) must find them for every
 project. `export` writes into the project only when you ask for it.
 
+## Terminals
+
+The viewer draws with the Kitty graphics protocol, and herdr forwards only that protocol (no
+Sixel, no iTerm2 inline images). The outer terminal decides:
+
+| Terminal | Status |
+|---|---|
+| Ghostty | Tested (1.3, Linux) |
+| kitty | Should work: the protocol's reference implementation |
+| WezTerm | Should work: implements the protocol; not tested here |
+| Konsole, iTerm2 3.6+, Warp | Partial or recent protocol support; untested, may not support source-rectangle zoom |
+| Alacritty, foot, GNOME Terminal and other VTE terminals, xterm, Windows Terminal, Terminal.app | No images. Everything else works; press `o` to open a diagram in your image viewer |
+
+- Run herdr directly in the terminal. A tmux or zellij layer between them blocks the graphics.
+- Over SSH it works when the terminal on your side supports the protocol: the graphics travel
+  in the terminal stream. With `herdr --remote`, enable `kitty_graphics` on the client machine.
+- `herdr-diagram doctor` shows whether herdr's `kitty_graphics` is on.
+
 ## Platforms
 
 | Platform | Status |
