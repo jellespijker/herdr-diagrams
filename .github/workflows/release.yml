@@ -49,9 +49,12 @@ jobs:
       contents: write
     environment: release
     steps:
+      # Pushes go over SSH with the deploy key: the rulesets let only deploy keys write to
+      # release and v* tags, and this secret exists only in the approved release environment.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       - name: Guards again on the exact commit
         run: python3 scripts/release_check.py --release "${{ inputs.version }}"
       - name: Fast-forward release to this commit and tag it
