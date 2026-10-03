@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - name: Version and changelog are consistent
         run: python3 scripts/release_check.py
       - name: Lint
@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 22
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
 
       - name: Renderers (Linux)
         if: runner.os == 'Linux'
