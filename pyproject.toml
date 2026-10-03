@@ -3,7 +3,7 @@
 
 [project]
 name = "herdr-diagrams"
-version = "0.1.5"
+version = "0.1.6"
 description = "Herdr plugin: diagrams from coding agents, rendered as images in a split pane."
 readme = "README.md"
 license = "MIT"

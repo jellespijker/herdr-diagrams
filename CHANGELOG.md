@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.6 (2026-10-03)
+
 - Release process: `release` is the default branch that users install, updated only by the
   release workflow (checks, CI on Linux and macOS, approval, fast-forward, tag, GitHub
   release); `main` takes pull requests. See RELEASING.md.
