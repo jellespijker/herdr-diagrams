@@ -5,6 +5,6 @@
   "description": "Mermaid renderer dependency for the herdr-diagrams plugin.",
   "license": "MIT",
   "dependencies": {
-    "@mermaid-js/mermaid-cli": "^11"
+    "@mermaid-js/mermaid-cli": "^12"
   }
 }
