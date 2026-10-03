@@ -31,7 +31,7 @@ jobs:
         run: |
           echo "::error::Run the release workflow on main (ran on ${{ github.ref }})"
           exit 1
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Release guards
@@ -51,7 +51,7 @@ jobs:
     steps:
       # Pushes go over SSH with the deploy key: the rulesets let only deploy keys write to
       # release and v* tags, and this secret exists only in the approved release environment.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
