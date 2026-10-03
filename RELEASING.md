@@ -10,8 +10,15 @@
 
 GitHub rulesets enforce this: no force pushes or deletions on `main`, `release` and `v*` tags;
 `main` takes changes through pull requests with the `checks` and `test` jobs passing and a
-linear history; `release` and the tags can only be written by GitHub Actions. A pull request
-into `release` fails the `pr-guard` check unless it comes from `main`.
+linear history; `release` and the `v*` tags can only be written with the repository's
+deploy key. That key's private half is the `RELEASE_DEPLOY_KEY` secret of the `release`
+environment, which requires the owner's approval and accepts only runs from `main`. A pull
+request into `release` fails the `pr-guard` check unless it comes from `main` (and the
+ruleset blocks merging it anyway).
+
+To rotate the key: create a new ed25519 key, add the public half as a write deploy key,
+store the private half with `gh secret set RELEASE_DEPLOY_KEY --env release`, delete the old
+deploy key.
 
 ## Day to day
 
