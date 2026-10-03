@@ -336,6 +336,11 @@ Diagram sources come from agents, so they are treated as untrusted input:
 - **The agent does not use the skill.** Check `herdr-diagram install-skill --status`,
   then restart the agent. For Claude Code, `install-hook claude` works without the skill.
 
+## Releases
+
+`release` is the default branch and holds the latest release; development happens on `main`
+through pull requests. See [RELEASING.md](RELEASING.md) and [CHANGELOG.md](CHANGELOG.md).
+
 ## Design
 
 - [Specification](docs/spec.md)

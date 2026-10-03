@@ -1,0 +1,72 @@
+name: release
+
+# Promote main to the release branch, tag it and publish a GitHub release.
+# Start it from the Actions tab (or `gh workflow run release -f version=X.Y.Z`) on main,
+# after the version bump is merged. See RELEASING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z (must match herdr-plugin.toml)"
+        required: true
+      dry_run:
+        description: "Only run the checks and tests, publish nothing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run the release workflow on main (ran on ${{ github.ref }})"
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release guards
+        run: python3 scripts/release_check.py --release "${{ inputs.version }}"
+
+  ci:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [verify, ci]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guards again on the exact commit
+        run: python3 scripts/release_check.py --release "${{ inputs.version }}"
+      - name: Fast-forward release to this commit and tag it
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git push origin "HEAD:refs/heads/release"   # no --force: fails unless fast-forward
+          git tag -a "v${{ inputs.version }}" -m "herdr-diagrams ${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+      - name: GitHub release with the changelog entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          v="${{ inputs.version }}"
+          awk -v v="$v" '$0 ~ "^## "v" " {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+          gh release create "v$v" --verify-tag --title "herdr-diagrams $v" --notes-file notes.md
