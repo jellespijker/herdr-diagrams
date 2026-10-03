@@ -1,6 +1,6 @@
 {
   "name": "herdr-diagrams",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Mermaid renderer dependency for the herdr-diagrams plugin.",
   "license": "MIT",
