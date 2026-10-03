@@ -17,13 +17,21 @@ def binary() -> str | None:
     return shutil.which("herdr")
 
 
-def call(*args: str, timeout: float = 10) -> dict | None:
-    """Run `herdr <args>` and return the parsed JSON `result`, or None on any error."""
+def call(*args: str, timeout: float = 10, socket: str | None = None) -> dict | None:
+    """Run `herdr <args>` and return the parsed JSON `result`, or None on any error.
+
+    `socket` targets another herdr session's server instead of this process's own.
+    """
     exe = binary()
     if not exe:
         return None
+    env = None
+    if socket:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("HERDR_SESSION", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")}
+        env["HERDR_SOCKET_PATH"] = socket
     try:
-        proc = subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return None
     for stream in (proc.stdout, proc.stderr):
@@ -104,3 +112,29 @@ def read_visible(pane_id: str, lines: int = 300) -> str | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     return proc.stdout if proc.returncode == 0 and not proc.stdout.startswith('{"error"') else None
+
+
+def running_sessions() -> list[dict]:
+    """Running herdr sessions: [{"name", "socket_path", ...}] from `herdr session list --json`."""
+    exe = binary()
+    if not exe:
+        return []
+    try:
+        proc = subprocess.run([exe, "session", "list", "--json"], capture_output=True, text=True, timeout=10)
+        data = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+    sessions = data.get("sessions") or (data.get("result") or {}).get("sessions") or []
+    return [s for s in sessions if isinstance(s, dict) and s.get("running") and s.get("socket_path")]
+
+
+def reload_config_everywhere() -> tuple[list[str], list[str]]:
+    """Reload config.toml in every running herdr session. Returns (reloaded, failed) names."""
+    reloaded, failed = [], []
+    sessions = running_sessions()
+    if not sessions:  # older herdr without session listing: at least this session
+        return (["current"], []) if call("server", "reload-config") is not None else ([], ["current"])
+    for session in sessions:
+        result = call("server", "reload-config", socket=session["socket_path"])
+        (reloaded if result is not None else failed).append(session.get("name", "?"))
+    return reloaded, failed

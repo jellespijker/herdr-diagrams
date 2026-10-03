@@ -471,8 +471,11 @@ def cmd_setup_keys(args) -> int:
             message = f"herdr rejected the change, restored {path}: {check.stdout or check.stderr}".strip()
             status = EXIT_RUNTIME
         else:
-            herdr.call("server", "reload-config")
-            message += "; herdr reloaded its config"
+            reloaded, failed = herdr.reload_config_everywhere()
+            if reloaded:
+                message += f"; reloaded herdr session(s): {', '.join(reloaded)}"
+            if failed:
+                message += f"; could not reload: {', '.join(failed)} (run `herdr server reload-config` there)"
     print(message, file=sys.stdout if status == 0 else sys.stderr)
     if os.environ.get("HERDR_PLUGIN_ACTION_ID"):  # started from the herdr menu: show the result
         herdr.call("notification", "show", "Diagrams keybinding", "--body", message)

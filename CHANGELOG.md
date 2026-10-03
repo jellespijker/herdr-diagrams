@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 (2026-10-03)
+
+- `setup-keys` reloads the config in every running herdr session, not only the current one.
+
 ## 0.1.4 (2026-10-02)
 
 - `herdr-diagram setup-keys` and the action "Diagrams: add keybinding": add `prefix+i` (or

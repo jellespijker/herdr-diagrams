@@ -435,7 +435,8 @@ The direction is `right` when the source pane is at least 120 columns wide and w
 Keybinding: a manifest cannot declare keys, so `herdr-diagram setup-keys` (also the actions
 `setup-keys` / `remove-keys`) manages a marked `[[keys.command]]` block in herdr's config.toml:
 default `prefix+i` → `herdr-diagrams.open`, refusing keys used in the config or by herdr's
-built-in bindings, validated with `herdr config check`, followed by `herdr server reload-config`.
+built-in bindings, validated with `herdr config check`, followed by `herdr server reload-config`
+in every running session (`herdr session list --json`, then each session's socket).
 
 ## 12. Implementation
 

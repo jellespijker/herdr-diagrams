@@ -133,3 +133,23 @@ def test_setup_message_on_windows(monkeypatch):
     monkeypatch.setattr(terminal.sys, "platform", "win32")
     title, body, problem = cli.setup_message()
     assert problem and "not supported" in title
+
+
+def test_reload_config_in_every_running_session(tmp_path, monkeypatch):
+    from herdr_diagrams import herdr
+
+    log = tmp_path / "calls.log"
+    exe = tmp_path / "herdr"
+    sessions = ('{"sessions":[{"name":"default","running":true,"socket_path":"/s/default.sock"},'
+                '{"name":"work","running":true,"socket_path":"/s/work.sock"},'
+                '{"name":"old","running":false,"socket_path":"/s/old.sock"}]}')
+    exe.write_text("#!/bin/sh\n"
+                   f'echo "$HERDR_SOCKET_PATH $@" >> "{log}"\n'
+                   f"case \"$1 $2\" in \"session list\") echo '{sessions}' ;;\n"
+                   "  *) echo '{\"result\":{\"status\":\"applied\"}}' ;; esac\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("HERDR_BIN_PATH", str(exe))
+    assert herdr.reload_config_everywhere() == (["default", "work"], [])
+    calls = log.read_text()
+    assert "/s/default.sock server reload-config" in calls and "/s/work.sock server reload-config" in calls
+    assert "/s/old.sock" not in calls

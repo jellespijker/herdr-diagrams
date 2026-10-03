@@ -164,7 +164,8 @@ herdr-diagram setup-keys --remove
 ```
 
 It writes a marked `[[keys.command]]` block (with a backup), checks the file with
-`herdr config check` and reloads herdr.
+`herdr config check` and reloads every running herdr session, so the key works everywhere
+at once.
 
 ## Use
 
