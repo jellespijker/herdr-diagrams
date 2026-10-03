@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## 0.1.7 (2026-10-03)
+
 - mermaid-cli 12. Mermaid PNGs are capped at 2400 px on the longer side (`--size`), which
   replaces the removed `--width` option.
+- CI: GitHub Actions `checkout`, `setup-node` and `setup-uv` updated (Node 24 runtime).
 
 ## 0.1.6 (2026-10-03)
 
