@@ -13,8 +13,9 @@
 
 [mermaid]
 detect = ["mermaid", "mmd"]
+# --size caps the longer side of the PNG (mermaid-cli 12 replaced --width/--height with it).
 argv = ["{root}/node_modules/.bin/mmdc", "-q", "-i", "{in}", "-o", "{out}",
-        "-s", "2", "-w", "1200", "-p", "{root}/puppeteer.json"]
+        "--size", "2400", "-p", "{root}/puppeteer.json"]
 svg_argv = ["{root}/node_modules/.bin/mmdc", "-q", "-i", "{in}", "-o", "{out}",
             "-p", "{root}/puppeteer.json"]
 in_ext = "mmd"

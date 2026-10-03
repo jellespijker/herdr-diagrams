@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- mermaid-cli 12. Mermaid PNGs are capped at 2400 px on the longer side (`--size`), which
+  replaces the removed `--width` option.
+
 ## 0.1.6 (2026-10-03)
 
 - Release process: `release` is the default branch that users install, updated only by the
