@@ -63,7 +63,8 @@ def latest_tag() -> tuple[int, ...] | None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--release", metavar="X.Y.Z", help="check everything needed to release this version")
     args = parser.parse_args()
     errors = []
@@ -90,7 +91,8 @@ def main() -> int:
         if not SEMVER.match(wanted):
             errors.append(f"release version {wanted!r} is not X.Y.Z")
         if version and wanted != version:
-            errors.append(f"release {wanted} but the files say {version}: run scripts/bump_version.py {wanted}")
+            errors.append(f"release {wanted} but the files say {version}: "
+                          f"run scripts/bump_version.py {wanted}")
         if (last := latest_tag()) and SEMVER.match(wanted) and tuple(map(int, wanted.split("."))) <= last:
             errors.append(f"release {wanted} is not higher than the latest tag v{'.'.join(map(str, last))}")
         if git("rev-parse", "-q", "--verify", f"refs/tags/v{wanted}").returncode == 0 or \
