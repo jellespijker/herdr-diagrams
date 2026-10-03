@@ -75,21 +75,21 @@ def test_detect_harness_from_env():
 
 def test_herdr_session_name():
     assert item.herdr_session({}) == "default"
-    assert item.herdr_session({"HERDR_SESSION": "work"}) == "work"
-    socket = "/h/.config/herdr/sessions/hd-demo/herdr.sock"
-    assert item.herdr_session({"HERDR_SOCKET_PATH": socket}) == "hd-demo"
+    assert item.herdr_session({"HERDR_SESSION": "alpha"}) == "alpha"
+    socket = "/h/.config/herdr/sessions/demo/herdr.sock"
+    assert item.herdr_session({"HERDR_SOCKET_PATH": socket}) == "demo"
     assert item.herdr_session({"HERDR_SOCKET_PATH": "/h/.config/herdr/herdr.sock"}) == "default"
     assert item.herdr_session({"HERDR_SESSION": "../x"}) == ".._x"
 
 
 def test_same_pane_id_in_two_sessions_does_not_collide(monkeypatch):
-    monkeypatch.setenv("HERDR_SESSION", "work")
+    monkeypatch.setenv("HERDR_SESSION", "alpha")
     item.write(item.new("d2", source="a -> b", pane="w1:p1"))
-    monkeypatch.setenv("HERDR_SESSION", "cloud")
+    monkeypatch.setenv("HERDR_SESSION", "beta")
     assert item.list_items("w1:p1") == []
     item.write(item.new("d2", source="c -> d", pane="w1:p1"))
     assert [it.source for it in item.list_items("w1:p1")] == ["c -> d"]
-    assert item.list_items("w1:p1")[0].origin["herdr_session"] == "cloud"
+    assert item.list_items("w1:p1")[0].origin["herdr_session"] == "beta"
 
 
 def test_clean_text_strips_terminal_controls():

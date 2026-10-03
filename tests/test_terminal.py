@@ -39,12 +39,12 @@ def test_detect_from_environment_and_multiplexers(monkeypatch):
 def test_detect_prefers_the_herdr_client_of_this_session(monkeypatch):
     clients = [
         (["herdr", "server"], {"TERM_PROGRAM": "herdr"}),
-        (["herdr", "--session", "work"], {"TERM": "alacritty"}),
+        (["herdr", "--session", "alpha"], {"TERM": "alacritty"}),
         (["herdr"], {"TERM_PROGRAM": "WezTerm"}),
     ]
     monkeypatch.setattr(terminal, "_processes", lambda: clients)
     assert terminal.detect({}).name == "WezTerm"
-    assert terminal.detect({"HERDR_SESSION": "work"}).name == "Alacritty"
+    assert terminal.detect({"HERDR_SESSION": "alpha"}).name == "Alacritty"
 
 
 def test_image_problem_and_override(monkeypatch):

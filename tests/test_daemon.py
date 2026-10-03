@@ -141,7 +141,7 @@ def test_reload_config_in_every_running_session(tmp_path, monkeypatch):
     log = tmp_path / "calls.log"
     exe = tmp_path / "herdr"
     sessions = ('{"sessions":[{"name":"default","running":true,"socket_path":"/s/default.sock"},'
-                '{"name":"work","running":true,"socket_path":"/s/work.sock"},'
+                '{"name":"alpha","running":true,"socket_path":"/s/alpha.sock"},'
                 '{"name":"old","running":false,"socket_path":"/s/old.sock"}]}')
     exe.write_text("#!/bin/sh\n"
                    f'echo "$HERDR_SOCKET_PATH $@" >> "{log}"\n'
@@ -149,7 +149,7 @@ def test_reload_config_in_every_running_session(tmp_path, monkeypatch):
                    "  *) echo '{\"result\":{\"status\":\"applied\"}}' ;; esac\n")
     exe.chmod(0o755)
     monkeypatch.setenv("HERDR_BIN_PATH", str(exe))
-    assert herdr.reload_config_everywhere() == (["default", "work"], [])
+    assert herdr.reload_config_everywhere() == (["default", "alpha"], [])
     calls = log.read_text()
-    assert "/s/default.sock server reload-config" in calls and "/s/work.sock server reload-config" in calls
+    assert "/s/default.sock server reload-config" in calls and "/s/alpha.sock server reload-config" in calls
     assert "/s/old.sock" not in calls
