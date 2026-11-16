@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -136,7 +136,7 @@ wheels = [
 
 [[package]]
 name = "herdr-diagrams"
-version = "0.1.7"
+version = "0.2.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

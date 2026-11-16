@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import tempfile
 import threading
@@ -500,3 +501,17 @@ def export_dir(it: item_mod.Item, override: str | None = None) -> Path:
     if not (os.path.isabs(cwd) and os.path.isdir(cwd)):
         cwd = os.getcwd()
     return Path(template.replace("{cwd}", cwd).replace("{home}", str(Path.home()))).expanduser()
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    """Return `(width, height)` in pixels from a PNG IHDR header, or `(1200, 800)`."""
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(24)
+        if len(header) >= 24 and header[:8] == b"\x89PNG\r\n\x1a\n" and header[12:16] == b"IHDR":
+            w, h = struct.unpack(">II", header[16:24])
+            if w > 0 and h > 0:
+                return int(w), int(h)
+    except OSError:
+        pass
+    return 1200, 800

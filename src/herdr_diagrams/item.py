@@ -87,13 +87,20 @@ def herdr_session(env: dict | None = None) -> str:
 
     Pane IDs are only unique within one session, so every per-pane path is scoped by it.
     herdr sets HERDR_SESSION in panes; plugin processes get HERDR_SOCKET_PATH, which is
-    `.../sessions/<name>/herdr.sock` for named sessions.
+    `.../sessions/<name>/herdr.sock` for named sessions. herdr-core (hc) sets
+    HC_TERMINAL_SOCKET (`.../herdr-core/<name>.sock`).
     """
     env = os.environ if env is None else env
     name = env.get("HERDR_SESSION")
     if not name:
         socket = Path(env.get("HERDR_SOCKET_PATH") or "")
-        name = socket.parent.name if socket.parent.parent.name == "sessions" else "default"
+        if socket.parent.parent.name == "sessions":
+            name = socket.parent.name
+        elif hc_sock := env.get("HC_TERMINAL_SOCKET"):
+            stem = Path(hc_sock).stem.split(".")[0]
+            name = stem or "default"
+        else:
+            name = "default"
     name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
     return name if name not in ("", ".", "..") else "default"
 

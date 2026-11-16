@@ -7,8 +7,8 @@
 
 id = "herdr-diagrams"
 name = "Diagrams"
-version = "0.1.7"
-description = "Mermaid, PlantUML, Structurizr, D2 and Graphviz diagrams from your coding agents, rendered as images in a split pane."
+version = "0.2.0"
+description = "Mermaid, PlantUML, Structurizr, D2 and Graphviz diagrams from your coding agents, rendered as images in a split pane for both the Herdr desktop app and the herdr TUI."
 min_herdr_version = "0.9.3"
 platforms = ["linux", "macos"]
 

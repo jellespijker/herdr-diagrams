@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-11-16)
+
+- Herdr-App GPUI mod (`mods/diagrams/`): render diagrams natively in a GPU split pane or overlay (`ctrl-shift-i` via `keys.json`) alongside the `herdr` TUI Kitty viewer.
+- Dual-mode CLI & viewer integration (`herdr.py`, `cli.py`, `viewers.py`, `render.py`, `keys.py`, `skill.py`): auto-detect Herdr-App, install the GPUI mod and keybindings in `install-skill` / `setup-keys`, and update `SKILL.md`, `README.md`, and `RECIPE.md`.
+
 ## 0.1.7 (2026-10-03)
 
 - mermaid-cli 12. Mermaid PNGs are capped at 2400 px on the longer side (`--size`), which

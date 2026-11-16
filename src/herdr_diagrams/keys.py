@@ -6,12 +6,14 @@ entries of the user's config.toml. This module manages one marked block there.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import tomllib
 from pathlib import Path
 
 DEFAULT_KEY = "prefix+i"
+DEFAULT_APP_KEY = "ctrl-shift-i"
 BEGIN = "# >>> herdr-diagrams keys (managed by `herdr-diagram setup-keys`) >>>"
 END = "# <<< herdr-diagrams keys <<<"
 ACTION = "herdr-diagrams.open"
@@ -110,5 +112,89 @@ def setup(key: str | None = None, remove: bool = False, path: Path | None = None
     tmp.write_text(new)
     if path.is_file():
         os.chmod(tmp, path.stat().st_mode & 0o777)
+    os.replace(tmp, path)
+    return True, message
+
+
+def app_keys_path(app_home: Path | None = None) -> Path:
+    if app_home is None:
+        if override := os.environ.get("HERDR_APP_HOME"):
+            app_home = Path(override)
+        else:
+            base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+            app_home = Path(base) / "herdr-app"
+    path = app_home / "keys.json"
+    return path.resolve() if path.is_symlink() else path
+
+
+def _is_diagrams_app_binding(val: object) -> bool:
+    if isinstance(val, str):
+        return val in ("mod.open:diagrams", "diagrams.open")
+    if isinstance(val, dict):
+        return val.get("command") == "pane.split" and (val.get("args") or {}).get("mod") == "diagrams"
+    return False
+
+
+def installed_app_key(path: Path | None = None) -> str | None:
+    path = path or app_keys_path()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    global_keys = data.get("global") if isinstance(data, dict) else None
+    if not isinstance(global_keys, dict):
+        return None
+    for k, v in global_keys.items():
+        if _is_diagrams_app_binding(v):
+            return k
+    return None
+
+
+def setup_app(key: str | None = None, remove: bool = False, path: Path | None = None) -> tuple[bool, str]:
+    """Write or remove the Herdr-App keybinding in `~/.config/herdr-app/keys.json`."""
+    path = path or app_keys_path()
+    if not path.parent.is_dir():
+        return False, f"no herdr-app folder at {path.parent}"
+    text = path.read_text() if path.is_file() else "{}\n"
+    try:
+        data = json.loads(text) if text.strip() else {}
+    except ValueError as exc:
+        return False, f"refusing to edit invalid keys.json ({path}): {exc}"
+    if not isinstance(data, dict):
+        data = {}
+    global_keys = data.setdefault("global", {})
+    if not isinstance(global_keys, dict):
+        return False, f"unexpected global section in {path}"
+    current = next((k for k, v in list(global_keys.items()) if _is_diagrams_app_binding(v)), None)
+    if remove:
+        changed = False
+        if current is not None:
+            global_keys.pop(current, None)
+            changed = True
+        if "mod:diagrams" in data:
+            data.pop("mod:diagrams", None)
+            changed = True
+        if not changed:
+            return False, f"no herdr-diagrams keybinding in {path}"
+        message = f"removed the {current or 'mod:diagrams'} keybinding from {path}"
+    else:
+        app_key = (key or DEFAULT_APP_KEY).lower()
+        if app_key.startswith("prefix+"):
+            app_key = DEFAULT_APP_KEY
+        target_val = {"command": "pane.split", "args": {"direction": "right", "mod": "diagrams"}}
+        existing = global_keys.get(app_key)
+        if existing is not None and not _is_diagrams_app_binding(existing):
+            return False, f"{app_key} is already used in {path} by {existing!r}"
+        if current == app_key and data.get("mod:diagrams") == {app_key: "pane.close"}:
+            return False, f"{app_key} already opens the diagrams mod ({path})"
+        if current and current != app_key:
+            global_keys.pop(current, None)
+        global_keys[app_key] = target_val
+        data["mod:diagrams"] = {app_key: "pane.close"}
+        message = f"{app_key} now opens the Herdr-App diagrams mod (added to {path})"
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
     os.replace(tmp, path)
     return True, message

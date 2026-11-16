@@ -3,8 +3,8 @@
 
 [project]
 name = "herdr-diagrams"
-version = "0.1.7"
-description = "Herdr plugin: diagrams from coding agents, rendered as images in a split pane."
+version = "0.2.0"
+description = "Herdr mod & TUI plugin: Mermaid, PlantUML, Structurizr (C4), D2 and Graphviz diagrams from coding agents, rendered in a native GPUI mod pane (Herdr-App) or Kitty split pane (herdr TUI)."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"

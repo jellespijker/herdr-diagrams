@@ -1,14 +1,15 @@
 ---
 name: herdr-diagrams
-description: Render diagrams as real images in a herdr side pane. Use this whenever you are about to write a Mermaid, PlantUML, Structurizr, D2 or Graphviz diagram in an answer, or when explaining architecture, flows, sequences, state machines, data models or dependencies, and the environment has HERDR_ENV=1 (you run inside herdr). Instead of leaving the diagram as a text code block, pass it to `herdr-diagram show` so the user sees the picture next to the conversation. Also shows PNG, SVG and JPEG files.
+description: Render diagrams as real images in a Herdr side pane (both the Herdr desktop app GPUI mod and the herdr TUI). Use this whenever you are about to write a Mermaid, PlantUML, Structurizr, D2 or Graphviz diagram in an answer, or when explaining architecture, flows, sequences, state machines, data models or dependencies, and the environment has HERDR_ENV=1, HERDR_PANE_ID or HC_TERMINAL_ID (you run inside Herdr or herdr-core). Instead of leaving the diagram as a text code block, pass it to `herdr-diagram show` so the user sees the picture next to the conversation. Also shows PNG, SVG and JPEG files.
 ---
 
 # herdr-diagrams
 
-The user runs you inside herdr, in a terminal that can show images. Text diagrams in your
+The user runs you inside Herdr (either the **Herdr desktop app** with `herdr-core` / `hc`, or the **`herdr` TUI** in a Kitty-capable terminal). Text diagrams in your
 answer stay text. To show a real image, pass the diagram to `herdr-diagram show`. It
-renders the diagram and displays it in a viewer pane next to yours. The viewer opens by
-itself the first time.
+renders the diagram and displays it in a viewer pane next to yours (either the native GPUI
+`diagrams` mod pane in Herdr-App or the Kitty graphics split pane in the herdr TUI). The viewer
+opens by itself the first time.
 
 Run `herdr-diagram` as a single plain command: no `&&` or `;` chains, no `$VARIABLES`, no
 `cd` in front. Permission rules allow exactly `herdr-diagram ...`, and anything around it
