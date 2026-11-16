@@ -41,12 +41,15 @@ jobs:
 
       - name: Renderers (Linux)
         if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get update
           sudo apt-get install -y graphviz librsvg2-bin
           # Chromium (Mermaid) needs unprivileged user namespaces for its sandbox
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          curl -fsSL https://d2lang.com/install.sh | sh -s --
+          gh release download -R d2lang/d2 --pattern 'd2-*-linux-amd64.tar.gz' -O - \
+            | sudo tar -xz -C /usr/local --strip-components=1 --wildcards '*/bin/d2'
 
       - name: Renderers (macOS)
         if: runner.os == 'macOS'
