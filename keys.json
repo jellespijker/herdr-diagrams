@@ -1,0 +1,14 @@
+{
+  "global": {
+    "ctrl-shift-i": {
+      "command": "pane.split",
+      "args": {
+        "direction": "right",
+        "mod": "diagrams"
+      }
+    }
+  },
+  "mod:diagrams": {
+    "ctrl-shift-i": "pane.close"
+  }
+}

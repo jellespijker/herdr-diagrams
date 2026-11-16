@@ -2,10 +2,13 @@
 
 Your coding agent draws a diagram; you see a picture, not a code block.
 
-A [Herdr](https://herdr.dev) plugin that renders **Mermaid, PlantUML, Structurizr (C4), D2
-and Graphviz** diagrams, and plain images, from **Claude Code, Codex, opencode, Copilot CLI,
-agy** and any other agent that can run a shell command. The images appear in a split pane
-next to the agent, drawn with the Kitty graphics protocol.
+A [Herdr](https://herdr.dev) **desktop app GPUI mod** and **`herdr` TUI plugin** that renders
+**Mermaid, PlantUML, Structurizr (C4), D2 and Graphviz** diagrams, and plain images, from
+**Claude Code, Codex, opencode, Copilot CLI, agy** and any other agent that can run a shell
+command. Diagrams appear in a split pane next to the agent — either as a **native GPU-rendered
+GPUI mod pane** in the **Herdr desktop app (`herdr-app` + `herdr-core` / `hc`, across local
+and remote connected machines)** or drawn with the **Kitty graphics protocol** in the **`herdr`
+TUI**.
 
 ![Claude Code explains an order flow; the sequence diagram appears in the pane beside it](docs/screenshots/claude-sequence.png)
 
@@ -18,12 +21,18 @@ flowchart LR
     agent([Coding agent]) -->|herdr-diagram show| spool[(spool)]
     hook[Claude Stop hook] --> spool
     spool --> viewer[Viewer pane]
-    viewer -->|mmdc · plantuml · d2 · dot| cache[(PNG cache)]
-    cache -->|Kitty graphics| terminal[Ghostty / kitty / WezTerm]
+    viewer -->|mmdc · plantuml · d2 · dot · structurizr| cache[(PNG cache)]
+    cache -->|Native GPUI image()| app[Herdr Desktop App]
+    cache -->|Kitty graphics| terminal[herdr TUI: Ghostty / kitty / WezTerm]
 ```
 
 - A shared **skill** teaches every agent to call `herdr-diagram show`. The first diagram
-  opens a viewer pane beside the agent's pane; later ones appear in it.
+  opens a viewer pane beside the agent's pane (a native `diagrams` GPUI mod split in
+  **Herdr-App** or a TUI viewer pane in **`herdr`**); later ones appear in it automatically.
+- **Works across remote `hc` machines in Herdr-App**: when viewing a remote space in
+  Herdr-App (e.g. `omarchy/t3` viewed from another machine), `herdr-diagram show` splits the
+  pane on the connected GUI host and the `diagrams` GPUI mod fetches and caches artifacts over
+  `hc` automatically.
 - `show` renders before it returns. A broken diagram comes back to the agent as an error
   with a line number, so the agent fixes it instead of telling you it worked.
 - For Claude Code, an optional **Stop hook** also picks up diagram blocks from its answers,
@@ -129,20 +138,46 @@ result as a herdr notification after install (and at herdr startup when it chang
 
 ## Install
 
+### In the Herdr desktop app (`herdr-app` + `herdr-core`)
+
+Paste this prompt to any coding agent running in your Herdr window:
+
+```text
+Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/jellespijker/herdr-diagrams
+```
+
+Or install from a terminal:
+
+```sh
+git clone https://github.com/jellespijker/herdr-diagrams.git ~/.local/share/herdr-diagrams
+cd ~/.local/share/herdr-diagrams && sh scripts/build.sh
+./bin/herdr-diagram install-skill
+./bin/herdr-diagram install-mod
+./bin/herdr-diagram setup-keys
+herdr-app check ~/.config/herdr-app/mods/diagrams
+```
+
+- `install-mod` (also run automatically by `install-skill` when `~/.config/herdr-app` exists) copies `mods/diagrams/` into `~/.config/herdr-app/mods/diagrams/` and creates the artifact cache at `~/.config/herdr-app/data/diagrams-cache/`.
+- `setup-keys` binds `ctrl-shift-i` in `~/.config/herdr-app/keys.json` to open/close the `diagrams` GPUI mod split beside the active terminal.
+- Running `herdr-diagram show` inside any `herdr-core` (`hc`) terminal automatically opens the native `diagrams` GPUI mod beside your terminal (including when viewing a remote `hc` machine's space).
+
+### In the `herdr` TUI (0.9.3+)
+
 ```sh
 herdr plugin install jellespijker/herdr-diagrams
 herdr plugin action invoke herdr-diagrams.install-skill
 herdr plugin action invoke herdr-diagrams.doctor
 ```
 
-`install-skill` links the skill and the `herdr-diagram` command (symlinks, nothing copied):
+`install-skill` links the skill and the `herdr-diagram` command (symlinks, nothing copied), and installs the Herdr-App GPUI mod if `~/.config/herdr-app` is present:
 
-| Link | Used by |
+| Link / Target | Used by |
 |---|---|
 | `~/.agents/skills/herdr-diagrams` | Codex, opencode, Copilot CLI, Gemini CLI |
 | `~/.claude/skills/herdr-diagrams` | Claude Code |
 | `~/.gemini/config/skills/herdr-diagrams` | Antigravity CLI (agy), if installed |
 | `~/.local/bin/herdr-diagram` | the command line |
+| `~/.config/herdr-app/mods/diagrams` | Herdr desktop app (native GPUI mod, if `~/.config/herdr-app` exists) |
 
 Optional, for Claude Code:
 
@@ -155,17 +190,18 @@ Both edit `~/.claude/settings.json` (or the file it links to), keep its file mod
 backup. `--uninstall` reverts each.
 
 Keybinding: plugins cannot register keys themselves; herdr's menu shows the bindings in
-`~/.config/herdr/config.toml`. Add one with the action "Diagrams: add keybinding", or:
+`~/.config/herdr/config.toml` (and Herdr-App reads `~/.config/herdr-app/keys.json`). Add one
+with the action "Diagrams: add keybinding", or:
 
 ```sh
-herdr-diagram setup-keys                 # prefix+i opens the viewer beside the current pane
-herdr-diagram setup-keys --key prefix+m  # another key; taken keys are refused with a suggestion
+herdr-diagram setup-keys                 # prefix+i (TUI) and ctrl-shift-i (Herdr-App) open the viewer
+herdr-diagram setup-keys --key prefix+m  # another TUI key; taken keys are refused with a suggestion
 herdr-diagram setup-keys --remove
 ```
 
 It writes a marked `[[keys.command]]` block (with a backup), checks the file with
-`herdr config check` and reloads every running herdr session, so the key works everywhere
-at once.
+`herdr config check`, reloads every running herdr session, and updates `~/.config/herdr-app/keys.json`
+when Herdr-App is installed.
 
 ## Use
 
@@ -265,9 +301,12 @@ herdr-diagram list               diagrams shown from this pane
 herdr-diagram render FILE -o X   render to a PNG file, no viewer
 herdr-diagram export             write PNG, SVG and source files (see Export)
 herdr-diagram open               open the viewer beside this pane
-herdr-diagram doctor             check herdr, graphics, renderers and links
-herdr-diagram install-skill      link skill and CLI (--status, --uninstall)
-herdr-diagram setup-keys         herdr keybinding for the viewer (default prefix+i)
+herdr-diagram doctor             check herdr, Herdr-App mod, graphics, renderers and links
+herdr-diagram install-skill      link skill, CLI and Herdr-App mod (--status, --uninstall)
+herdr-diagram install-mod        install/remove the Herdr-App GPUI mod in ~/.config/herdr-app
+herdr-diagram setup-keys         keybinding for TUI (prefix+i) and Herdr-App (ctrl-shift-i)
+herdr-diagram app-state          structured JSON state for the Herdr-App GPUI mod
+herdr-diagram app-artifact       base64-encoded artifact bytes for remote Herdr-App mods
 herdr-diagram install-hook claude  automatic Stop hook for Claude Code
 herdr-diagram allow claude         permission rules for Claude Code (no prompts, sandbox)
 herdr-diagram gc                 delete diagrams, archives and images older than 7 days

@@ -40,6 +40,15 @@ def mark_pending(source_pane: str | None) -> None:
                                 "source_pane": source_pane})
 
 
+def register_app(source_pane: str | None, viewer_pane: str | None = None, ttl: float = 30) -> None:
+    """Record or refresh a native Herdr-App GPUI mod viewer lease for `source_pane`."""
+    _write(_file(source_pane), {
+        "app_until": time.time() + ttl,
+        "viewer_pane": viewer_pane,
+        "source_pane": source_pane,
+    })
+
+
 def unregister(source_pane: str | None) -> None:
     path = _file(source_pane)
     try:
@@ -58,6 +67,11 @@ def lookup(source_pane: str | None) -> dict | None:
         return None
     if "pending_until" in data:
         if data["pending_until"] > time.time():
+            return data
+        path.unlink(missing_ok=True)
+        return None
+    if "app_until" in data:
+        if data["app_until"] > time.time():
             return data
         path.unlink(missing_ok=True)
         return None

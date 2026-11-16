@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -12,7 +14,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import daemon, detect, herdr, item, keys, render, skill, terminal, viewers
+from . import daemon, detect, herdr, item, keys, render, skill, sync, terminal, viewers
 
 EXIT_RUNTIME, EXIT_USAGE, EXIT_DETECT, EXIT_SANDBOX = 1, 2, 3, 4
 
@@ -25,7 +27,26 @@ def version() -> str:
 
 
 def current_pane(explicit: str | None = None) -> str | None:
-    return explicit or os.environ.get("HERDR_PANE_ID") or None
+    pane = explicit or os.environ.get("HERDR_PANE_ID") or os.environ.get("HC_TERMINAL_ID")
+    if pane and herdr.is_hc_terminal(pane):
+        return herdr.local_hc_id(pane)
+    return pane or None
+
+
+def _sync_artifacts_to_app_mod(artifacts: list[Path]) -> None:
+    """Copy rendered artifacts into `<app_home>/data/diagrams-cache/` when herdr-app is present."""
+    app_dir = skill.app_home()
+    if not app_dir.is_dir():
+        return
+    cache = skill.mod_cache_dir(app_dir)
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        for art in artifacts:
+            dest = cache / art.name
+            if not dest.is_file() and art.is_file():
+                shutil.copy2(art, dest)
+    except OSError:
+        pass
 
 
 def ensure_viewer(pane: str | None, cwd: str | None = None) -> str:
@@ -34,6 +55,14 @@ def ensure_viewer(pane: str | None, cwd: str | None = None) -> str:
         return "not-opened"
     if viewers.lookup(pane):
         return "running"
+    if herdr.is_hc_terminal(pane):
+        viewers.mark_pending(pane)
+        result = herdr.open_viewer(pane, cwd)
+        if result is not None:
+            viewers.register_app(pane, result.get("pane"), ttl=30)
+            return "opened"
+        viewers.forget(pane)
+        return "daemon" if daemon.running() else "open-failed"
     if not herdr.binary():
         return "daemon" if daemon.running() else "no-herdr"
     viewers.mark_pending(pane)
@@ -46,14 +75,16 @@ def ensure_viewer(pane: str | None, cwd: str | None = None) -> str:
 
 
 def _origin_from_herdr(pane: str | None) -> tuple[str | None, str | None]:
-    """Harness kind and session ID that herdr detected for `pane`."""
-    if not pane or not herdr.binary():
+    """Harness kind and session ID that herdr or herdr-core detected for `pane`."""
+    if not pane or (not herdr.binary() and not herdr.hc_binary()):
         return None, None
     info = herdr.pane(pane) or {}
     harness = info.get("agent")
     session = (info.get("agent_session") or {}).get("value")
     if harness and harness not in item.HARNESSES:
-        harness = {"antigravity": "agy", "gemini": "agy"}.get(harness, harness)
+        harness = {"antigravity": "agy", "gemini": "agy", "claude-code": "claude"}.get(harness, harness)
+    if harness and harness not in item.HARNESSES:
+        harness = "unknown"
     return harness, session
 
 
@@ -111,6 +142,7 @@ def cmd_show(args) -> int:
                 print(item.clean_text(detail), file=sys.stderr)
             print("Nothing was queued. Fix the diagram and run show again.", file=sys.stderr)
             return EXIT_RUNTIME
+        _sync_artifacts_to_app_mod(result.artifacts)
     if not it.title:
         it.title = it.display_title  # a title is what the chat marker refers to
     written = item.write(it)
@@ -126,7 +158,7 @@ def cmd_show(args) -> int:
     print(f"{fmt}: {it.display_title} — {where}")
     if pane and it.origin.get("harness", "unknown") != "unknown":
         print(f"Write this line in your answer where the diagram belongs: [diagram: {it.display_title}]")
-    if pane:
+    if pane and not herdr.is_hc_terminal(pane):
         info = terminal.detect()
         if not info.ok and info.support != "unknown" or info.multiplexer:
             print(f"Note for the user: {info.summary()}. The viewer lists the diagram; "
@@ -276,19 +308,35 @@ def cmd_doctor(args) -> int:
         proc = subprocess.run([exe, "--version"], capture_output=True, text=True)
         herdr_version = " ".join(proc.stdout.split()[-1:])
     print("herdr")
-    line("binary", f"{exe} {herdr_version}".strip() if exe else "not found", bool(exe))
-    inside = os.environ.get("HERDR_ENV") == "1" or bool(os.environ.get("HERDR_PANE_ID"))
-    line("inside herdr", (f"yes, pane {os.environ['HERDR_PANE_ID']}" if os.environ.get("HERDR_PANE_ID")
+    hc_exe = herdr.hc_binary()
+    app_exe = herdr.app_binary()
+    line("binary", f"{exe} {herdr_version}".strip() if exe else "not found",
+         bool(exe) or ("warn" if hc_exe or app_exe else False))
+    if hc_exe or app_exe:
+        line("herdr-core / app", f"hc: {hc_exe or 'none'}, herdr-app: {app_exe or 'none'}", True)
+        app_mod_file = skill.mod_dest() / "main.js"
+        line("herdr-app mod", f"installed: {app_mod_file.parent}" if app_mod_file.is_file()
+             else "missing: run `herdr-diagram install-mod`", app_mod_file.is_file())
+    inside = (os.environ.get("HERDR_ENV") == "1"
+              or bool(os.environ.get("HERDR_PANE_ID"))
+              or bool(os.environ.get("HC_TERMINAL_ID")))
+    active_pane = os.environ.get("HERDR_PANE_ID") or os.environ.get("HC_TERMINAL_ID")
+    line("inside herdr", (f"yes, pane {active_pane}" if active_pane
                           else "yes") if inside else "no (run it in a herdr pane)", inside)
     setting = terminal.kitty_graphics_setting()
     line("kitty_graphics", setting, "OFF" not in setting)
     bound = keys.installed_key(keys.config_path().read_text()) if keys.config_path().is_file() else None
-    line("keybinding", f"{bound} opens the viewer" if bound
-         else "none: run `herdr-diagram setup-keys` to add one to the herdr menu",
-         True if bound else "warn")
+    app_bound = keys.installed_app_key()
+    key_desc = ", ".join(filter(None, [
+        f"{bound} (TUI)" if bound else None,
+        f"{app_bound} (Herdr-App)" if app_bound else None,
+    ]))
+    line("keybinding", f"{key_desc} opens the viewer" if key_desc
+         else "none: run `herdr-diagram setup-keys` to add one",
+         True if key_desc else "warn")
     alive = daemon.running()
     line("viewer daemon", "running" if alive else "not running (starts with herdr or the open action)",
-         alive)
+         alive or ("warn" if hc_exe or app_exe else False))
     print("paths")
     line("home", str(item.home()))
     line("config", str(render.config_dir()))
@@ -400,11 +448,115 @@ def cmd_install_skill(args) -> int:
     try:
         for row in skill.install(args.harness or None, uninstall=args.uninstall):
             print(row)
+        if not args.harness and skill.app_home().is_dir():
+            state, dest = skill.install_app_mod(uninstall=args.uninstall)
+            if state in ("installed", "removed"):
+                print(f"{state:<8} {dest}  (Herdr-App native GPUI mod)")
     except ValueError as exc:
         print(f"herdr-diagram install-skill: {exc}", file=sys.stderr)
         return EXIT_USAGE
     finally:
         wait_for_key(args)
+    return 0
+
+
+def cmd_install_mod(args) -> int:
+    home = Path(args.app_home).expanduser() if args.app_home else None
+    state, dest = skill.install_app_mod(home=home, uninstall=args.uninstall)
+    if state == "missing-src":
+        print(f"herdr-diagram install-mod: missing source {skill.MOD_SRC}", file=sys.stderr)
+        return EXIT_RUNTIME
+    print(f"{state}  {dest}")
+    return 0
+
+
+def _pick_default_pane(panes: list[str]) -> str | None:
+    """Pick the pane key with the newest diagram (preferring real panes over `_nopane`)."""
+    best_pane, best_created = None, -1
+    real = [p for p in panes if p != item.NOPANE] or panes
+    for key in real:
+        pane = None if key == item.NOPANE else (key.replace("_", ":", 1) if "_" in key else key)
+        items = item.list_items(pane)
+        if items and items[-1].created >= best_created:
+            best_created = items[-1].created
+            best_pane = pane
+    return best_pane
+
+
+def cmd_app_state(args) -> int:
+    """Return structured JSON state for the native Herdr-App GPUI `diagrams` mod."""
+    registry = render.load_registry()
+    theme = args.theme or render.load_settings()["theme"]
+    all_keys = item.pane_ids_with_items()
+    pane = current_pane(args.pane)
+    if pane and not item.list_items(pane) and item.NOPANE in all_keys and not args.strict_pane:
+        # Fallback to _nopane if the requested pane has no items yet but _nopane has recent items
+        pass
+    elif not pane and all_keys:
+        pane = _pick_default_pane(all_keys)
+    if pane:
+        viewers.register_app(pane, ttl=20)
+    items = item.list_items(pane)
+    if not items and pane and not args.strict_pane and item.NOPANE in all_keys:
+        items = item.list_items(None)
+    sync_index = None
+    if pane and items:
+        visible = herdr.read_visible(pane)
+        if visible:
+            sync_index = sync.visible_item(items, visible)
+    serialized = []
+    for it in items:
+        res = render.render_item(it, registry=registry, theme=theme)
+        if res.ok and args.sync_cache:
+            _sync_artifacts_to_app_mod(res.artifacts)
+        artifacts = []
+        for art in res.artifacts:
+            w, h = render.png_dimensions(art)
+            artifacts.append({
+                "name": art.name,
+                "width": w,
+                "height": h,
+                "mod_path": f"data/diagrams-cache/{art.name}",
+            })
+        serialized.append({
+            "id": it.id,
+            "title": it.display_title,
+            "format": it.format,
+            "created": it.created,
+            "source": it.source,
+            "path": it.path,
+            "cwd": it.origin.get("cwd"),
+            "harness": it.origin.get("harness", "unknown"),
+            "ok": res.ok,
+            "error": item.clean_text(res.error or "") if res.error else None,
+            "detail": item.clean_text(render.short_detail(res.detail)) if res.detail else "",
+            "artifacts": artifacts,
+        })
+    out = {
+        "pane": pane,
+        "panes": all_keys,
+        "spool_dir": str(item.spool_dir(pane)),
+        "sync_index": sync_index,
+        "theme": theme,
+        "items": serialized,
+    }
+    print(json.dumps(out))
+    return 0
+
+
+def cmd_app_artifact(args) -> int:
+    """Print base64-encoded bytes of a cached artifact for a remote Herdr-App GPUI mod."""
+    name = args.name
+    if not re.fullmatch(r"[A-Za-z0-9._-]+\.(?:png|svg)", name):
+        print(f"herdr-diagram app-artifact: invalid artifact name {name!r}", file=sys.stderr)
+        return EXIT_USAGE
+    target = item.cache_dir() / name
+    if not target.is_file():
+        print(f"herdr-diagram app-artifact: not found: {name}", file=sys.stderr)
+        return EXIT_RUNTIME
+    if args.sync_cache:
+        _sync_artifacts_to_app_mod([target])
+    sys.stdout.write(base64.b64encode(target.read_bytes()).decode("ascii"))
     return 0
 
 
@@ -457,7 +609,7 @@ def _log_event(event: str, raw: str, keep: int = 50) -> None:
 
 
 def cmd_setup_keys(args) -> int:
-    """Add (or remove) the viewer keybinding in herdr's config.toml, then reload herdr."""
+    """Add (or remove) the viewer keybinding in herdr's config.toml and Herdr-App's keys.json."""
     path = keys.config_path()
     changed, message = keys.setup(args.key, remove=args.remove, path=path)
     status = 0 if changed or "already" in message else EXIT_USAGE
@@ -476,6 +628,15 @@ def cmd_setup_keys(args) -> int:
                 message += f"; reloaded herdr session(s): {', '.join(reloaded)}"
             if failed:
                 message += f"; could not reload: {', '.join(failed)} (run `herdr server reload-config` there)"
+    if skill.app_home().is_dir():
+        app_changed, app_msg = keys.setup_app(
+            args.key if args.key and not args.key.lower().startswith("prefix+") else None,
+            remove=args.remove,
+        )
+        if app_changed or "already" in app_msg:
+            message = f"{message}\n{app_msg}"
+            if status != EXIT_RUNTIME:
+                status = 0
     print(message, file=sys.stdout if status == 0 else sys.stderr)
     if os.environ.get("HERDR_PLUGIN_ACTION_ID"):  # started from the herdr menu: show the result
         herdr.call("notification", "show", "Diagrams keybinding", "--body", message)
@@ -705,6 +866,24 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("gc", help="delete old diagrams and cached images")
     p.add_argument("--older-than", default="7d")
     p.set_defaults(func=cmd_gc)
+
+    p = sub.add_parser("install-mod", help="install the native Herdr-App GPUI mod in ~/.config/herdr-app")
+    p.add_argument("--app-home", help="Herdr-App home directory (default: ~/.config/herdr-app)")
+    p.add_argument("--uninstall", action="store_true")
+    p.set_defaults(func=cmd_install_mod)
+
+    p = sub.add_parser("app-state", help="structured JSON state for the Herdr-App GPUI mod")
+    p.add_argument("--pane", help="bound terminal or pane ID")
+    p.add_argument("--theme", choices=["dark", "light"])
+    p.add_argument("--sync-cache", action="store_true",
+                   help="copy rendered artifacts into ~/.config/herdr-app/mods/diagrams/cache/")
+    p.add_argument("--strict-pane", action="store_true")
+    p.set_defaults(func=cmd_app_state)
+
+    p = sub.add_parser("app-artifact", help="base64-encoded artifact bytes for remote Herdr-App mods")
+    p.add_argument("name", help="cached artifact filename (<sha256>.png)")
+    p.add_argument("--sync-cache", action="store_true")
+    p.set_defaults(func=cmd_app_artifact)
     return parser
 
 

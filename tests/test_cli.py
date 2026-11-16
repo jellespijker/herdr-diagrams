@@ -173,3 +173,40 @@ def test_export_without_items_and_bad_index():
     assert run("export", env={"HERDR_PANE_ID": "w1:p1"}).returncode == 1
     item.write(item.new("d2", source="a -> b", pane="w1:p1"))
     assert run("export", "-n", "5", env={"HERDR_PANE_ID": "w1:p1"}).returncode == 2
+
+
+@needs("dot")
+def test_hc_terminal_id_and_app_state_and_artifact(tmp_path):
+    app_home = tmp_path / "herdr-app"
+    app_home.mkdir()
+    env = {"HC_TERMINAL_ID": "t7", "HERDR_APP_HOME": str(app_home)}
+    proc = run("show", "-t", "HC Flow", str(FIXTURES / "sample.dot"), env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert len(item.list_items("t7")) == 1
+
+    state_proc = run("app-state", "--pane", "omarchy/t7", "--sync-cache", env=env)
+    assert state_proc.returncode == 0, state_proc.stderr
+    state = json.loads(state_proc.stdout)
+    assert state["pane"] == "t7"
+    assert len(state["items"]) == 1
+    first = state["items"][0]
+    assert first["title"] == "HC Flow" and first["ok"] is True
+    art = first["artifacts"][0]
+    assert art["width"] > 0 and art["height"] > 0
+    assert art["mod_path"] == f"data/diagrams-cache/{art['name']}"
+    assert (app_home / "data" / "diagrams-cache" / art["name"]).is_file()
+
+    b64_proc = run("app-artifact", art["name"], env=env)
+    assert b64_proc.returncode == 0 and len(b64_proc.stdout) > 20
+    assert run("app-artifact", "../bad.png", env=env).returncode == 2
+
+
+def test_install_mod(tmp_path):
+    app_home = tmp_path / "herdr-app"
+    proc = run("install-mod", "--app-home", str(app_home))
+    assert proc.returncode == 0, proc.stderr
+    assert (app_home / "mods" / "diagrams" / "main.js").is_file()
+    assert (app_home / "mods" / "diagrams" / "mod.json").is_file()
+    assert (app_home / "mods" / "diagrams" / "RECIPE.md").is_file()
+    assert run("install-mod", "--app-home", str(app_home), "--uninstall").returncode == 0
+    assert not (app_home / "mods" / "diagrams").exists()
